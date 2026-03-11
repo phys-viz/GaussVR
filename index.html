@@ -55,6 +55,12 @@
     roughness: 0.4,
   });
   const charge = new THREE.Mesh(new THREE.SphereGeometry(0.12, 32, 32), chargeMat);
+  // Larger invisible sphere for easier raycasting
+  const hitTarget = new THREE.Mesh(
+    new THREE.SphereGeometry(0.35, 16, 16),
+    new THREE.MeshBasicMaterial({ visible: false })
+  );
+  charge.add(hitTarget);
   charge.position.set(0, 1.4, -0.8);
   scene.add(charge);
 
