@@ -15,11 +15,17 @@
   scene.background = new THREE.Color(0x0a0a1a);
   const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 50);
   camera.position.set(0, 1.6, 2.5);
+
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(devicePixelRatio);
   renderer.setSize(innerWidth, innerHeight);
   renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
+
+  // Player rig — we move/rotate this instead of the camera directly
+  const player = new THREE.Group();
+  player.add(camera);
+  scene.add(player);
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
   const sun = new THREE.DirectionalLight(0xffffff, 1.0);
@@ -97,13 +103,17 @@
   });
 
   const _up = new THREE.Vector3(0,1,0);
+  const chargeWorldPos = new THREE.Vector3();
+
   function updateArrows() {
-    const chargePos = charge.position;
-    chargeLight.position.copy(chargePos);
+    // *** Use getWorldPosition so it works correctly when charge is grabbed ***
+    charge.getWorldPosition(chargeWorldPos);
+    chargeLight.position.copy(chargeWorldPos);
+
     faceArrows.forEach(({ mesh, localPos, normal }) => {
       const worldPos = cubeCenter.clone().add(localPos);
       mesh.position.copy(worldPos);
-      const dist = worldPos.distanceTo(chargePos);
+      const dist = worldPos.distanceTo(chargeWorldPos);
       const strength = Math.min(1.0, 0.04 / (dist * dist));
       mesh.scale.setScalar(0.5 + strength * 1.5);
       const intensity = Math.min(1.0, strength * 3);
@@ -117,16 +127,15 @@
   }
   updateArrows();
 
-  // ── Proximity grab ────────────────────────────────────────────────────────
-  // Grab radius is generous — just get your controller anywhere near the charge
+  // Grab
   const GRAB_RADIUS = 0.5;
   let grabbingController = null;
   const ctrlPos = new THREE.Vector3();
-
   const controllers = [];
+
   for (let i = 0; i < 2; i++) {
     const ctrl = renderer.xr.getController(i);
-    scene.add(ctrl);
+    player.add(ctrl); // attach to player rig so they move with locomotion
     controllers.push(ctrl);
 
     const body = new THREE.Mesh(
@@ -135,14 +144,6 @@
     );
     body.rotation.x = -Math.PI / 2;
     ctrl.add(body);
-
-    // Proximity ring — visual indicator of grab zone
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(GRAB_RADIUS, 0.005, 8, 32),
-      new THREE.MeshBasicMaterial({ color: 0x4fc3f7, transparent: true, opacity: 0.0 })
-    );
-    ctrl.add(ring);
-    ctrl.userData.ring = ring;
 
     ctrl.addEventListener('selectstart', () => {
       if (grabbingController) return;
@@ -161,7 +162,6 @@
     });
   }
 
-  // Pulse charge glow when controller is near
   function updateProximity() {
     if (grabbingController) return;
     let near = false;
@@ -172,7 +172,49 @@
     chargeMat.emissiveIntensity = near ? 0.9 : 0.4;
   }
 
+  // ── Locomotion: left stick = move, right stick = snap turn ────────────────
+  const SNAP_ANGLE = Math.PI / 6; // 30 degrees
+  let snapCooled = true;
+  const moveDir = new THREE.Vector3();
+  const camDir  = new THREE.Vector3();
+
+  function handleLocomotion() {
+    const session = renderer.xr.getSession();
+    if (!session) return;
+    for (const source of session.inputSources) {
+      if (!source.gamepad) continue;
+      const axes = source.gamepad.axes;
+      if (axes.length < 4) continue;
+      const lx = axes[2], ly = axes[3]; // left stick on most controllers is axes 2,3
+
+      if (source.handedness === 'left') {
+        // Smooth movement — walk forward/back and strafe
+        if (Math.abs(lx) > 0.1 || Math.abs(ly) > 0.1) {
+          camera.getWorldDirection(camDir);
+          camDir.y = 0;
+          camDir.normalize();
+          const right = new THREE.Vector3().crossVectors(camDir, new THREE.Vector3(0,1,0));
+          moveDir.set(0,0,0)
+            .addScaledVector(camDir, -ly * 0.02)
+            .addScaledVector(right,   lx * 0.02);
+          player.position.add(moveDir);
+        }
+      }
+
+      if (source.handedness === 'right') {
+        // Snap turn on right stick
+        if (Math.abs(lx) > 0.6 && snapCooled) {
+          player.rotation.y -= Math.sign(lx) * SNAP_ANGLE;
+          snapCooled = false;
+        }
+        if (Math.abs(lx) < 0.3) snapCooled = true;
+      }
+    }
+  }
+
+  // Render loop
   renderer.setAnimationLoop(() => {
+    handleLocomotion();
     updateArrows();
     updateProximity();
     renderer.render(scene, camera);
