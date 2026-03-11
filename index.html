@@ -11,26 +11,21 @@
 <body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-  // ── Scene ──────────────────────────────────────────────────────────────────
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a1a);
-
   const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 50);
   camera.position.set(0, 1.6, 2.5);
-
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(devicePixelRatio);
   renderer.setSize(innerWidth, innerHeight);
   renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
 
-  // ── Lighting ───────────────────────────────────────────────────────────────
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
   const sun = new THREE.DirectionalLight(0xffffff, 1.0);
   sun.position.set(2, 4, 2);
   scene.add(sun);
 
-  // ── Floor ─────────────────────────────────────────────────────────────────
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(10, 10),
     new THREE.MeshStandardMaterial({ color: 0x111122 })
@@ -39,53 +34,31 @@
   scene.add(floor);
   scene.add(new THREE.GridHelper(10, 20, 0x223344, 0x1a2233));
 
-  // ── Gaussian Surface Cube ─────────────────────────────────────────────────
+  // Cube
   const CUBE_SIZE = 0.8;
   const cubeCenter = new THREE.Vector3(0, 1.4, -0.8);
-
-  // Wireframe edges
   const wireframe = new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.BoxGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE)),
     new THREE.LineBasicMaterial({ color: 0x4fc3f7, transparent: true, opacity: 0.8 })
   );
   wireframe.position.copy(cubeCenter);
   scene.add(wireframe);
-
-  // Transparent faces
   const cubeFaces = new THREE.Mesh(
     new THREE.BoxGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE),
-    new THREE.MeshStandardMaterial({
-      color: 0x4fc3f7,
-      transparent: true,
-      opacity: 0.07,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    })
+    new THREE.MeshStandardMaterial({ color: 0x4fc3f7, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
   );
   cubeFaces.position.copy(cubeCenter);
   scene.add(cubeFaces);
 
-  // ── Charge Sphere ─────────────────────────────────────────────────────────
-  const chargeMat = new THREE.MeshStandardMaterial({
-    color: 0xff4444,
-    emissive: 0xff2222,
-    emissiveIntensity: 0.4,
-  });
+  // Charge
+  const chargeMat = new THREE.MeshStandardMaterial({ color: 0xff4444, emissive: 0xff2222, emissiveIntensity: 0.4 });
   const charge = new THREE.Mesh(new THREE.SphereGeometry(0.09, 32, 32), chargeMat);
-  charge.position.copy(cubeCenter); // start at center
+  charge.position.copy(cubeCenter);
   scene.add(charge);
-
-  // Invisible large hit target
-  const hitTarget = new THREE.Mesh(
-    new THREE.SphereGeometry(0.3, 16, 16),
-    new THREE.MeshBasicMaterial({ visible: false })
-  );
-  charge.add(hitTarget);
-
   const chargeLight = new THREE.PointLight(0xff4444, 1.2, 3);
   scene.add(chargeLight);
 
-  // ── Arrow builder ─────────────────────────────────────────────────────────
+  // Arrows
   function makeArrow() {
     const group = new THREE.Group();
     const mat = new THREE.MeshStandardMaterial({ color: 0x4fc3f7, emissive: 0x4fc3f7, emissiveIntensity: 0.3 });
@@ -98,32 +71,24 @@
     return group;
   }
 
-  // ── Build arrows on each face ─────────────────────────────────────────────
-  // 6 faces × 3×3 grid = 54 arrows
-  // Each face: normal direction, and two tangent axes for grid placement
-  const GRID = 3; // per face
-  const faceConfigs = [
-    { normal: new THREE.Vector3( 1,  0,  0), up: new THREE.Vector3(0,1,0), right: new THREE.Vector3(0,0,-1) },
-    { normal: new THREE.Vector3(-1,  0,  0), up: new THREE.Vector3(0,1,0), right: new THREE.Vector3(0,0, 1) },
-    { normal: new THREE.Vector3( 0,  1,  0), up: new THREE.Vector3(0,0,-1), right: new THREE.Vector3(1,0,0) },
-    { normal: new THREE.Vector3( 0, -1,  0), up: new THREE.Vector3(0,0, 1), right: new THREE.Vector3(1,0,0) },
-    { normal: new THREE.Vector3( 0,  0,  1), up: new THREE.Vector3(0,1,0), right: new THREE.Vector3(1,0,0) },
-    { normal: new THREE.Vector3( 0,  0, -1), up: new THREE.Vector3(0,1,0), right: new THREE.Vector3(-1,0,0) },
-  ];
-
-  const faceArrows = []; // { mesh, surfacePos (local to cube center), normal }
+  const GRID = 3;
   const halfSize = CUBE_SIZE / 2;
   const step = CUBE_SIZE / (GRID + 1);
-
+  const faceConfigs = [
+    { normal: new THREE.Vector3( 1,0,0), up: new THREE.Vector3(0,1,0), right: new THREE.Vector3(0,0,-1) },
+    { normal: new THREE.Vector3(-1,0,0), up: new THREE.Vector3(0,1,0), right: new THREE.Vector3(0,0, 1) },
+    { normal: new THREE.Vector3(0, 1,0), up: new THREE.Vector3(0,0,-1), right: new THREE.Vector3(1,0,0) },
+    { normal: new THREE.Vector3(0,-1,0), up: new THREE.Vector3(0,0, 1), right: new THREE.Vector3(1,0,0) },
+    { normal: new THREE.Vector3(0,0, 1), up: new THREE.Vector3(0,1,0), right: new THREE.Vector3(1,0,0) },
+    { normal: new THREE.Vector3(0,0,-1), up: new THREE.Vector3(0,1,0), right: new THREE.Vector3(-1,0,0) },
+  ];
+  const faceArrows = [];
   faceConfigs.forEach(({ normal, up, right }) => {
     for (let i = 1; i <= GRID; i++) {
       for (let j = 1; j <= GRID; j++) {
-        const u = (i - (GRID + 1) / 2) * step;
-        const v = (j - (GRID + 1) / 2) * step;
-        // Position on face surface (local coords relative to cube center)
-        const localPos = normal.clone().multiplyScalar(halfSize)
-          .addScaledVector(up, u)
-          .addScaledVector(right, v);
+        const u = (i - (GRID+1)/2) * step;
+        const v = (j - (GRID+1)/2) * step;
+        const localPos = normal.clone().multiplyScalar(halfSize).addScaledVector(up, u).addScaledVector(right, v);
         const arrow = makeArrow();
         scene.add(arrow);
         faceArrows.push({ mesh: arrow, localPos, normal: normal.clone() });
@@ -131,112 +96,89 @@
     }
   });
 
-  // ── Update arrows based on charge position ────────────────────────────────
-  const _up = new THREE.Vector3(0, 1, 0);
-
+  const _up = new THREE.Vector3(0,1,0);
   function updateArrows() {
     const chargePos = charge.position;
     chargeLight.position.copy(chargePos);
-
     faceArrows.forEach(({ mesh, localPos, normal }) => {
-      // World position of this arrow
       const worldPos = cubeCenter.clone().add(localPos);
       mesh.position.copy(worldPos);
-
-      // Vector from charge to surface point
-      const toSurface = worldPos.clone().sub(chargePos);
-      const dist = toSurface.length();
-
-      // Field strength ~ 1/r², scale arrow size & brightness
+      const dist = worldPos.distanceTo(chargePos);
       const strength = Math.min(1.0, 0.04 / (dist * dist));
       mesh.scale.setScalar(0.5 + strength * 1.5);
-
-      // Color: bright cyan = strong field, dim blue = weak
       const intensity = Math.min(1.0, strength * 3);
       mesh.children.forEach(child => {
         child.material.emissiveIntensity = 0.1 + intensity * 0.8;
         child.material.color.setRGB(intensity * 0.3 + 0.1, intensity * 0.6 + 0.3, 1.0);
       });
-
-      // Orient: point along the outward normal of the face
-      // (Gauss's law — we care about normal component)
       const q = new THREE.Quaternion().setFromUnitVectors(_up, normal);
       mesh.setRotationFromQuaternion(q);
     });
   }
-
   updateArrows();
 
-  // ── Raycaster & Grab ──────────────────────────────────────────────────────
-  const raycaster = new THREE.Raycaster();
+  // ── Proximity grab ────────────────────────────────────────────────────────
+  // Grab radius is generous — just get your controller anywhere near the charge
+  const GRAB_RADIUS = 0.5;
   let grabbingController = null;
+  const ctrlPos = new THREE.Vector3();
 
-  function tryGrab(controller) {
-    if (grabbingController) return;
-    const origin    = new THREE.Vector3();
-    const direction = new THREE.Vector3();
-    controller.getWorldPosition(origin);
-    controller.getWorldDirection(direction);
-    raycaster.set(origin, direction);
-    if (raycaster.intersectObject(charge, true).length > 0) {
-      grabbingController = controller;
-      chargeMat.emissiveIntensity = 1.0;
-      controller.attach(charge);
-    }
-  }
-
-  function release(controller) {
-    if (grabbingController !== controller) return;
-    scene.attach(charge);
-    chargeMat.emissiveIntensity = 0.4;
-    grabbingController = null;
-  }
-
-  // Highlight on hover
-  const _o = new THREE.Vector3(), _d = new THREE.Vector3();
-  function updateHighlight() {
-    if (grabbingController) return;
-    let hit = false;
-    for (let i = 0; i < 2; i++) {
-      const ctrl = renderer.xr.getController(i);
-      ctrl.getWorldPosition(_o);
-      ctrl.getWorldDirection(_d);
-      raycaster.set(_o, _d);
-      if (raycaster.intersectObject(charge, true).length > 0) { hit = true; break; }
-    }
-    chargeMat.emissiveIntensity = hit ? 0.8 : 0.4;
-  }
-
-  // ── Controllers ───────────────────────────────────────────────────────────
+  const controllers = [];
   for (let i = 0; i < 2; i++) {
     const ctrl = renderer.xr.getController(i);
     scene.add(ctrl);
+    controllers.push(ctrl);
+
     const body = new THREE.Mesh(
       new THREE.CylinderGeometry(0.012, 0.018, 0.12, 10),
       new THREE.MeshStandardMaterial({ color: 0xdddddd })
     );
     body.rotation.x = -Math.PI / 2;
     ctrl.add(body);
-    const ray = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-1)
-      ]),
-      new THREE.LineBasicMaterial({ color: 0x4fc3f7, transparent: true, opacity: 0.4 })
+
+    // Proximity ring — visual indicator of grab zone
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(GRAB_RADIUS, 0.005, 8, 32),
+      new THREE.MeshBasicMaterial({ color: 0x4fc3f7, transparent: true, opacity: 0.0 })
     );
-    ray.scale.z = 2;
-    ctrl.add(ray);
-    ctrl.addEventListener('selectstart', () => tryGrab(ctrl));
-    ctrl.addEventListener('selectend',   () => release(ctrl));
+    ctrl.add(ring);
+    ctrl.userData.ring = ring;
+
+    ctrl.addEventListener('selectstart', () => {
+      if (grabbingController) return;
+      ctrl.getWorldPosition(ctrlPos);
+      if (ctrlPos.distanceTo(charge.position) < GRAB_RADIUS) {
+        grabbingController = ctrl;
+        chargeMat.emissiveIntensity = 1.0;
+        ctrl.attach(charge);
+      }
+    });
+    ctrl.addEventListener('selectend', () => {
+      if (grabbingController !== ctrl) return;
+      scene.attach(charge);
+      chargeMat.emissiveIntensity = 0.4;
+      grabbingController = null;
+    });
   }
 
-  // ── Render loop ───────────────────────────────────────────────────────────
+  // Pulse charge glow when controller is near
+  function updateProximity() {
+    if (grabbingController) return;
+    let near = false;
+    controllers.forEach(ctrl => {
+      ctrl.getWorldPosition(ctrlPos);
+      if (ctrlPos.distanceTo(charge.position) < GRAB_RADIUS) near = true;
+    });
+    chargeMat.emissiveIntensity = near ? 0.9 : 0.4;
+  }
+
   renderer.setAnimationLoop(() => {
     updateArrows();
-    updateHighlight();
+    updateProximity();
     renderer.render(scene, camera);
   });
 
-  // ── VR Button ─────────────────────────────────────────────────────────────
+  // VR Button
   const btn = document.createElement('button');
   Object.assign(btn.style, {
     position:'absolute', bottom:'30px', left:'50%', transform:'translateX(-50%)',
