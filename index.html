@@ -3,26 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <title>VR Gauss's Law</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #0a0a1a; overflow: hidden; }
-  </style>
+  <style>* { margin:0; padding:0; box-sizing:border-box; } body { background:#0a0a1a; overflow:hidden; }</style>
 </head>
 <body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a1a);
-  const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 50);
+  const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.01, 50);
   camera.position.set(0, 1.6, 2.5);
-
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(devicePixelRatio);
   renderer.setSize(innerWidth, innerHeight);
   renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
 
-  // Player rig — we move/rotate this instead of the camera directly
+  // Player rig
   const player = new THREE.Group();
   player.add(camera);
   scene.add(player);
@@ -33,14 +29,14 @@
   scene.add(sun);
 
   const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(10, 10),
+    new THREE.PlaneGeometry(10,10),
     new THREE.MeshStandardMaterial({ color: 0x111122 })
   );
-  floor.rotation.x = -Math.PI / 2;
+  floor.rotation.x = -Math.PI/2;
   scene.add(floor);
   scene.add(new THREE.GridHelper(10, 20, 0x223344, 0x1a2233));
 
-  // Cube
+  // Cube Gaussian surface
   const CUBE_SIZE = 0.8;
   const cubeCenter = new THREE.Vector3(0, 1.4, -0.8);
   const wireframe = new THREE.LineSegments(
@@ -64,7 +60,7 @@
   const chargeLight = new THREE.PointLight(0xff4444, 1.2, 3);
   scene.add(chargeLight);
 
-  // Arrows
+  // Arrow builder
   function makeArrow() {
     const group = new THREE.Group();
     const mat = new THREE.MeshStandardMaterial({ color: 0x4fc3f7, emissive: 0x4fc3f7, emissiveIntensity: 0.3 });
@@ -77,6 +73,7 @@
     return group;
   }
 
+  // Build arrows on each face in a 3x3 grid
   const GRID = 3;
   const halfSize = CUBE_SIZE / 2;
   const step = CUBE_SIZE / (GRID + 1);
@@ -94,10 +91,11 @@
       for (let j = 1; j <= GRID; j++) {
         const u = (i - (GRID+1)/2) * step;
         const v = (j - (GRID+1)/2) * step;
-        const localPos = normal.clone().multiplyScalar(halfSize).addScaledVector(up, u).addScaledVector(right, v);
+        const localPos = normal.clone().multiplyScalar(halfSize)
+          .addScaledVector(up, u).addScaledVector(right, v);
         const arrow = makeArrow();
         scene.add(arrow);
-        faceArrows.push({ mesh: arrow, localPos, normal: normal.clone() });
+        faceArrows.push({ mesh: arrow, localPos });
       }
     }
   });
@@ -106,14 +104,18 @@
   const chargeWorldPos = new THREE.Vector3();
 
   function updateArrows() {
-    // *** Use getWorldPosition so it works correctly when charge is grabbed ***
     charge.getWorldPosition(chargeWorldPos);
     chargeLight.position.copy(chargeWorldPos);
 
-    faceArrows.forEach(({ mesh, localPos, normal }) => {
+    faceArrows.forEach(({ mesh, localPos }) => {
       const worldPos = cubeCenter.clone().add(localPos);
       mesh.position.copy(worldPos);
+
+      // Direction = radially away from charge (true E-field direction)
+      const dir = worldPos.clone().sub(chargeWorldPos).normalize();
       const dist = worldPos.distanceTo(chargeWorldPos);
+
+      // Scale and color by 1/r²
       const strength = Math.min(1.0, 0.04 / (dist * dist));
       mesh.scale.setScalar(0.5 + strength * 1.5);
       const intensity = Math.min(1.0, strength * 3);
@@ -121,7 +123,9 @@
         child.material.emissiveIntensity = 0.1 + intensity * 0.8;
         child.material.color.setRGB(intensity * 0.3 + 0.1, intensity * 0.6 + 0.3, 1.0);
       });
-      const q = new THREE.Quaternion().setFromUnitVectors(_up, normal);
+
+      // Orient arrow along E-field direction (away from charge)
+      const q = new THREE.Quaternion().setFromUnitVectors(_up, dir);
       mesh.setRotationFromQuaternion(q);
     });
   }
@@ -135,16 +139,14 @@
 
   for (let i = 0; i < 2; i++) {
     const ctrl = renderer.xr.getController(i);
-    player.add(ctrl); // attach to player rig so they move with locomotion
+    player.add(ctrl);
     controllers.push(ctrl);
-
     const body = new THREE.Mesh(
       new THREE.CylinderGeometry(0.012, 0.018, 0.12, 10),
       new THREE.MeshStandardMaterial({ color: 0xdddddd })
     );
-    body.rotation.x = -Math.PI / 2;
+    body.rotation.x = -Math.PI/2;
     ctrl.add(body);
-
     ctrl.addEventListener('selectstart', () => {
       if (grabbingController) return;
       ctrl.getWorldPosition(ctrlPos);
@@ -172,8 +174,8 @@
     chargeMat.emissiveIntensity = near ? 0.9 : 0.4;
   }
 
-  // ── Locomotion: left stick = move, right stick = snap turn ────────────────
-  const SNAP_ANGLE = Math.PI / 6; // 30 degrees
+  // ── Locomotion — Quest 2 uses axes[0]/[1] per controller gamepad ──────────
+  const SNAP_ANGLE = Math.PI / 6;
   let snapCooled = true;
   const moveDir = new THREE.Vector3();
   const camDir  = new THREE.Vector3();
@@ -184,35 +186,32 @@
     for (const source of session.inputSources) {
       if (!source.gamepad) continue;
       const axes = source.gamepad.axes;
-      if (axes.length < 4) continue;
-      const lx = axes[2], ly = axes[3]; // left stick on most controllers is axes 2,3
+      // Quest 2: axes[0]=stick X, axes[1]=stick Y per hand
+      const sx = axes[2] !== undefined ? axes[2] : axes[0];
+      const sy = axes[3] !== undefined ? axes[3] : axes[1];
 
       if (source.handedness === 'left') {
-        // Smooth movement — walk forward/back and strafe
-        if (Math.abs(lx) > 0.1 || Math.abs(ly) > 0.1) {
+        if (Math.abs(sx) > 0.15 || Math.abs(sy) > 0.15) {
           camera.getWorldDirection(camDir);
-          camDir.y = 0;
-          camDir.normalize();
+          camDir.y = 0; camDir.normalize();
           const right = new THREE.Vector3().crossVectors(camDir, new THREE.Vector3(0,1,0));
           moveDir.set(0,0,0)
-            .addScaledVector(camDir, -ly * 0.02)
-            .addScaledVector(right,   lx * 0.02);
+            .addScaledVector(camDir, -sy * 0.025)
+            .addScaledVector(right,   sx * 0.025);
           player.position.add(moveDir);
         }
       }
 
       if (source.handedness === 'right') {
-        // Snap turn on right stick
-        if (Math.abs(lx) > 0.6 && snapCooled) {
-          player.rotation.y -= Math.sign(lx) * SNAP_ANGLE;
+        if (Math.abs(sx) > 0.5 && snapCooled) {
+          player.rotation.y -= Math.sign(sx) * SNAP_ANGLE;
           snapCooled = false;
         }
-        if (Math.abs(lx) < 0.3) snapCooled = true;
+        if (Math.abs(sx) < 0.2) snapCooled = true;
       }
     }
   }
 
-  // Render loop
   renderer.setAnimationLoop(() => {
     handleLocomotion();
     updateArrows();
@@ -243,7 +242,7 @@
   });
 
   window.addEventListener('resize', () => {
-    camera.aspect = innerWidth / innerHeight;
+    camera.aspect = innerWidth/innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
   });
