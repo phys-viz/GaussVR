@@ -75,24 +75,28 @@
   scene.add(cube);
 
   // ── Grab state ────────────────────────────────────────────────────────────
-  const GRAB_RADIUS = 0.35; // how close controller must be to grab
+  const raycaster = new THREE.Raycaster();
   let grabbingController = null;
 
   function tryGrab(controller) {
-    if (grabbingController) return; // already held
-    const cp = new THREE.Vector3();
-    controller.getWorldPosition(cp);
-    const dist = cp.distanceTo(cube.position);
-    if (dist < GRAB_RADIUS) {
+    if (grabbingController) return;
+    // Cast a ray from the controller forward
+    const origin = new THREE.Vector3();
+    const direction = new THREE.Vector3();
+    controller.getWorldPosition(origin);
+    controller.getWorldDirection(direction);
+    raycaster.set(origin, direction);
+    const hits = raycaster.intersectObject(cube);
+    if (hits.length > 0) {
       grabbingController = controller;
-      cubeMat.color.set(0xffb74d); // turn orange when held
-      controller.attach(cube);     // cube follows controller
+      cubeMat.color.set(0xffb74d); // orange when held
+      controller.attach(cube);
     }
   }
 
   function release(controller) {
     if (grabbingController !== controller) return;
-    scene.attach(cube);            // return cube to world space
+    scene.attach(cube);
     cubeMat.color.set(0x4fc3f7);   // back to blue
     grabbingController = null;
   }
@@ -128,16 +132,21 @@
   // ── Highlight when controller is near ─────────────────────────────────────
   const cp = new THREE.Vector3();
 
+  const origin = new THREE.Vector3();
+  const direction = new THREE.Vector3();
+
   function updateHighlight() {
     if (grabbingController) return;
-    let near = false;
+    let hit = false;
     for (let i = 0; i < 2; i++) {
       const ctrl = renderer.xr.getController(i);
-      ctrl.getWorldPosition(cp);
-      if (cp.distanceTo(cube.position) < GRAB_RADIUS) { near = true; break; }
+      ctrl.getWorldPosition(origin);
+      ctrl.getWorldDirection(direction);
+      raycaster.set(origin, direction);
+      if (raycaster.intersectObject(cube).length > 0) { hit = true; break; }
     }
-    cubeMat.emissive.set(near ? 0x1a3a4a : 0x000000);
-    cubeMat.emissiveIntensity = near ? 0.4 : 0;
+    cubeMat.emissive.set(hit ? 0x1a3a4a : 0x000000);
+    cubeMat.emissiveIntensity = hit ? 0.6 : 0;
   }
 
   // ── Gentle idle spin ──────────────────────────────────────────────────────
