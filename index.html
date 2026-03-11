@@ -18,7 +18,6 @@
   renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
 
-  // Player rig
   const player = new THREE.Group();
   player.add(camera);
   scene.add(player);
@@ -28,7 +27,6 @@
   sun.position.set(2, 4, 2);
   scene.add(sun);
 
-  // Fixed floor
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(10,10),
     new THREE.MeshStandardMaterial({ color: 0x111122 })
@@ -37,28 +35,26 @@
   scene.add(floor);
   scene.add(new THREE.GridHelper(10, 20, 0x223344, 0x1a2233));
 
-  // ── Physics diorama group — everything that spins together ────────────────
+  // Diorama group — cube, charge, arrows all spin together
   const diorama = new THREE.Group();
-  diorama.position.set(0, 1.4, -0.8); // cube center in world space
+  diorama.position.set(0, 1.4, -0.8);
   scene.add(diorama);
 
-  // Cube (local origin = cube center)
+  // Cube
   const CUBE_SIZE = 0.8;
-  const wireframe = new THREE.LineSegments(
+  diorama.add(new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.BoxGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE)),
     new THREE.LineBasicMaterial({ color: 0x4fc3f7, transparent: true, opacity: 0.8 })
-  );
-  diorama.add(wireframe);
-  const cubeFaces = new THREE.Mesh(
+  ));
+  diorama.add(new THREE.Mesh(
     new THREE.BoxGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE),
     new THREE.MeshStandardMaterial({ color: 0x4fc3f7, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
-  );
-  diorama.add(cubeFaces);
+  ));
 
-  // Charge (local to diorama)
+  // Charge
   const chargeMat = new THREE.MeshStandardMaterial({ color: 0xff4444, emissive: 0xff2222, emissiveIntensity: 0.4 });
   const charge = new THREE.Mesh(new THREE.SphereGeometry(0.09, 32, 32), chargeMat);
-  charge.position.set(0, 0, 0); // start at cube center
+  charge.position.set(0, 0, 0);
   diorama.add(charge);
   const chargeLight = new THREE.PointLight(0xff4444, 1.2, 3);
   diorama.add(chargeLight);
@@ -68,17 +64,13 @@
     const group = new THREE.Group();
     const mat = new THREE.MeshStandardMaterial({ color: 0x4fc3f7, emissive: 0x4fc3f7, emissiveIntensity: 0.3 });
     const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.18, 8), mat.clone());
-    shaft.position.y = 0.09;
-    group.add(shaft);
+    shaft.position.y = 0.09; group.add(shaft);
     const head = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.06, 8), mat.clone());
-    head.position.y = 0.21;
-    group.add(head);
+    head.position.y = 0.21; group.add(head);
     return group;
   }
 
-  const GRID = 3;
-  const halfSize = CUBE_SIZE / 2;
-  const step = CUBE_SIZE / (GRID + 1);
+  const GRID = 3, halfSize = CUBE_SIZE/2, step = CUBE_SIZE/(GRID+1);
   const faceConfigs = [
     { normal: new THREE.Vector3( 1,0,0), up: new THREE.Vector3(0,1,0), right: new THREE.Vector3(0,0,-1) },
     { normal: new THREE.Vector3(-1,0,0), up: new THREE.Vector3(0,1,0), right: new THREE.Vector3(0,0, 1) },
@@ -91,10 +83,8 @@
   faceConfigs.forEach(({ normal, up, right }) => {
     for (let i = 1; i <= GRID; i++) {
       for (let j = 1; j <= GRID; j++) {
-        const u = (i - (GRID+1)/2) * step;
-        const v = (j - (GRID+1)/2) * step;
-        const localPos = normal.clone().multiplyScalar(halfSize)
-          .addScaledVector(up, u).addScaledVector(right, v);
+        const u = (i-(GRID+1)/2)*step, v = (j-(GRID+1)/2)*step;
+        const localPos = normal.clone().multiplyScalar(halfSize).addScaledVector(up,u).addScaledVector(right,v);
         const arrow = makeArrow();
         diorama.add(arrow);
         faceArrows.push({ mesh: arrow, localPos });
@@ -103,45 +93,45 @@
   });
 
   const _up = new THREE.Vector3(0,1,0);
+  const chargeWorldPos = new THREE.Vector3();
   const chargeLocalPos = new THREE.Vector3();
 
   function updateArrows() {
-    chargeLight.position.copy(charge.position);
-    chargeLocalPos.copy(charge.position); // local to diorama
+    // Always get world position — works whether charge is in diorama or held by controller
+    charge.getWorldPosition(chargeWorldPos);
+    // Convert to diorama local space for arrow calculations
+    diorama.worldToLocal(chargeLocalPos.copy(chargeWorldPos));
+    chargeLight.position.copy(chargeLocalPos);
 
     faceArrows.forEach(({ mesh, localPos }) => {
       mesh.position.copy(localPos);
       const dir = localPos.clone().sub(chargeLocalPos).normalize();
       const dist = localPos.distanceTo(chargeLocalPos);
-      const strength = Math.min(1.0, 0.04 / (dist * dist));
-      mesh.scale.setScalar(0.5 + strength * 1.5);
-      const intensity = Math.min(1.0, strength * 3);
+      const strength = Math.min(1.0, 0.04/(dist*dist));
+      mesh.scale.setScalar(0.5 + strength*1.5);
+      const intensity = Math.min(1.0, strength*3);
       mesh.children.forEach(child => {
-        child.material.emissiveIntensity = 0.1 + intensity * 0.8;
-        child.material.color.setRGB(intensity * 0.3 + 0.1, intensity * 0.6 + 0.3, 1.0);
+        child.material.emissiveIntensity = 0.1 + intensity*0.8;
+        child.material.color.setRGB(intensity*0.3+0.1, intensity*0.6+0.3, 1.0);
       });
-      const q = new THREE.Quaternion().setFromUnitVectors(_up, dir);
-      mesh.setRotationFromQuaternion(q);
+      mesh.setRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(_up, dir));
     });
   }
   updateArrows();
 
-  // ── Controllers ───────────────────────────────────────────────────────────
-  const CHARGE_GRAB_RADIUS = 0.5;
-  const CUBE_GRAB_RADIUS   = 0.55; // just outside cube surface
-
-  let chargeGrabController = null; // trigger grab
-  let spinController       = null; // grip grab
-  const spinPrevPos        = new THREE.Vector3();
-  const spinCurrPos        = new THREE.Vector3();
-  const ctrlPos            = new THREE.Vector3();
-  const controllers        = [];
+  // Controllers
+  let chargeGrabController = null;
+  let spinController = null;
+  const spinPrevPos = new THREE.Vector3();
+  const spinCurrPos = new THREE.Vector3();
+  const ctrlWorldPos = new THREE.Vector3();
+  const ctrlLocalPos = new THREE.Vector3();
+  const controllers = [];
 
   for (let i = 0; i < 2; i++) {
     const ctrl = renderer.xr.getController(i);
     player.add(ctrl);
     controllers.push(ctrl);
-
     const body = new THREE.Mesh(
       new THREE.CylinderGeometry(0.012, 0.018, 0.12, 10),
       new THREE.MeshStandardMaterial({ color: 0xdddddd })
@@ -149,16 +139,14 @@
     body.rotation.x = -Math.PI/2;
     ctrl.add(body);
 
-    // ── Trigger → grab charge ──────────────────────────────────────────────
+    // Trigger = grab charge
     ctrl.addEventListener('selectstart', () => {
       if (chargeGrabController) return;
-      ctrl.getWorldPosition(ctrlPos);
-      // Convert to diorama local space for distance check
-      const localCtrl = diorama.worldToLocal(ctrlPos.clone());
-      if (localCtrl.distanceTo(charge.position) < CHARGE_GRAB_RADIUS) {
+      ctrl.getWorldPosition(ctrlWorldPos);
+      diorama.worldToLocal(ctrlLocalPos.copy(ctrlWorldPos));
+      if (ctrlLocalPos.distanceTo(charge.position) < 0.5) {
         chargeGrabController = ctrl;
         chargeMat.emissiveIntensity = 1.0;
-        // Attach charge to controller, but keep it in diorama when released
         ctrl.attach(charge);
       }
     });
@@ -169,16 +157,11 @@
       chargeGrabController = null;
     });
 
-    // ── Grip → spin diorama ────────────────────────────────────────────────
+    // Grip = spin diorama — generous detection, just be anywhere near the scene
     ctrl.addEventListener('squeezestart', () => {
       if (spinController) return;
-      ctrl.getWorldPosition(ctrlPos);
-      const dioramaWorldPos = new THREE.Vector3();
-      diorama.getWorldPosition(dioramaWorldPos);
-      if (ctrlPos.distanceTo(dioramaWorldPos) < CUBE_GRAB_RADIUS + 0.3) {
-        spinController = ctrl;
-        ctrl.getWorldPosition(spinPrevPos);
-      }
+      spinController = ctrl;
+      ctrl.getWorldPosition(spinPrevPos);
     });
     ctrl.addEventListener('squeezeend', () => {
       if (spinController !== ctrl) return;
@@ -190,40 +173,29 @@
     if (chargeGrabController) return;
     let near = false;
     controllers.forEach(ctrl => {
-      ctrl.getWorldPosition(ctrlPos);
-      const localCtrl = diorama.worldToLocal(ctrlPos.clone());
-      if (localCtrl.distanceTo(charge.position) < CHARGE_GRAB_RADIUS) near = true;
+      ctrl.getWorldPosition(ctrlWorldPos);
+      diorama.worldToLocal(ctrlLocalPos.copy(ctrlWorldPos));
+      if (ctrlLocalPos.distanceTo(charge.position) < 0.5) near = true;
     });
     chargeMat.emissiveIntensity = near ? 0.9 : 0.4;
   }
 
-  // ── Spin logic ────────────────────────────────────────────────────────────
-  const dioramaWorldPos = new THREE.Vector3();
-
   function updateSpin() {
     if (!spinController) return;
     spinController.getWorldPosition(spinCurrPos);
-
-    // Delta movement of hand in world space
     const delta = spinCurrPos.clone().sub(spinPrevPos);
-
-    // Horizontal hand movement → rotate around world Y axis
-    // Vertical hand movement   → rotate around world X axis (camera-relative)
     const sensitivity = 3.0;
     diorama.rotation.y += delta.x * sensitivity;
-    diorama.rotation.x += delta.y * sensitivity;
-
-    // Clamp X tilt so it doesn't flip upside down
+    // Fixed: negative delta.y = hand moves down = tilt down
+    diorama.rotation.x -= delta.y * sensitivity;
     diorama.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, diorama.rotation.x));
-
     spinPrevPos.copy(spinCurrPos);
   }
 
-  // ── Locomotion ────────────────────────────────────────────────────────────
-  const SNAP_ANGLE = Math.PI / 6;
+  // Locomotion
+  const SNAP_ANGLE = Math.PI/6;
   let snapCooled = true;
-  const moveDir = new THREE.Vector3();
-  const camDir  = new THREE.Vector3();
+  const moveDir = new THREE.Vector3(), camDir = new THREE.Vector3();
 
   function handleLocomotion() {
     const session = renderer.xr.getSession();
@@ -233,21 +205,18 @@
       const axes = source.gamepad.axes;
       const sx = axes[2] !== undefined ? axes[2] : axes[0];
       const sy = axes[3] !== undefined ? axes[3] : axes[1];
-
       if (source.handedness === 'left') {
         if (Math.abs(sx) > 0.15 || Math.abs(sy) > 0.15) {
           camera.getWorldDirection(camDir);
           camDir.y = 0; camDir.normalize();
           const right = new THREE.Vector3().crossVectors(camDir, new THREE.Vector3(0,1,0));
-          moveDir.set(0,0,0)
-            .addScaledVector(camDir, -sy * 0.025)
-            .addScaledVector(right,   sx * 0.025);
+          moveDir.set(0,0,0).addScaledVector(camDir,-sy*0.025).addScaledVector(right,sx*0.025);
           player.position.add(moveDir);
         }
       }
       if (source.handedness === 'right') {
         if (Math.abs(sx) > 0.5 && snapCooled) {
-          player.rotation.y -= Math.sign(sx) * SNAP_ANGLE;
+          player.rotation.y -= Math.sign(sx)*SNAP_ANGLE;
           snapCooled = false;
         }
         if (Math.abs(sx) < 0.2) snapCooled = true;
@@ -255,7 +224,6 @@
     }
   }
 
-  // Render loop
   renderer.setAnimationLoop(() => {
     handleLocomotion();
     updateSpin();
