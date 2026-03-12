@@ -9,7 +9,6 @@
 <body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-  // ── Renderer & Scene ───────────────────────────────────────────────────────
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a1a);
   const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.01, 50);
@@ -29,7 +28,6 @@
   sun.position.set(2, 4, 2);
   scene.add(sun);
 
-  // Floor
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(10,10),
     new THREE.MeshStandardMaterial({ color: 0x111122 })
@@ -38,7 +36,7 @@
   scene.add(floor);
   scene.add(new THREE.GridHelper(10, 20, 0x223344, 0x1a2233));
 
-  // ── Diorama ────────────────────────────────────────────────────────────────
+  // Diorama
   const diorama = new THREE.Group();
   diorama.position.set(0, 1.4, -0.8);
   scene.add(diorama);
@@ -53,56 +51,40 @@
     new THREE.MeshStandardMaterial({ color: 0x4fc3f7, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
   ));
 
-  // ── Charge System ──────────────────────────────────────────────────────────
-  const charges = []; // { mesh, light, type, fading, velocity, life, grabbed }
+  // Charges
+  const charges = [];
   const MAX_POS = 2, MAX_NEG = 2;
+  const chargeWorldPos = new THREE.Vector3();
 
   function countActive(type) {
     return charges.filter(c => c.type === type && !c.fading).length;
   }
 
-  function makeChargeMesh(type) {
-    const color  = type > 0 ? 0xff4444 : 0x44aaff;
-    const emissive = type > 0 ? 0xff2222 : 0x2266ff;
-    const mat = new THREE.MeshStandardMaterial({
-      color, emissive, emissiveIntensity: 0.5,
-      transparent: true, opacity: 1.0
-    });
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 32, 32), mat);
-    return mesh;
-  }
-
   function spawnCharge(type) {
     if (type > 0 && countActive(1)  >= MAX_POS) return;
     if (type < 0 && countActive(-1) >= MAX_NEG) return;
-
-    const mesh = makeChargeMesh(type);
-    // Spawn offset so multiple charges don't stack
-    const offset = new THREE.Vector3(
-      (Math.random()-0.5)*0.3,
-      (Math.random()-0.5)*0.3,
-      (Math.random()-0.5)*0.3
-    );
-    mesh.position.copy(offset);
+    const color    = type > 0 ? 0xff4444 : 0x44aaff;
+    const emissive = type > 0 ? 0xff2222 : 0x2266ff;
+    const mat = new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: 0.5, transparent: true, opacity: 1.0 });
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 32, 32), mat);
+    mesh.position.set((Math.random()-.5)*.3, (Math.random()-.5)*.3, (Math.random()-.5)*.3);
     diorama.add(mesh);
-
-    const lightColor = type > 0 ? 0xff4444 : 0x4488ff;
-    const light = new THREE.PointLight(lightColor, 1.0, 2.5);
+    const light = new THREE.PointLight(type > 0 ? 0xff4444 : 0x4488ff, 1.0, 2.5);
     diorama.add(light);
-
     charges.push({ mesh, light, type, fading: false, velocity: new THREE.Vector3(), life: 1.0, grabbed: false });
     updateButtons();
   }
 
   function removeCharge(ch) {
+    scene.remove(ch.mesh);
     diorama.remove(ch.mesh);
-    scene.remove(ch.mesh); // in case it was detached to scene during grab
+    scene.remove(ch.light);
     diorama.remove(ch.light);
     charges.splice(charges.indexOf(ch), 1);
     updateButtons();
   }
 
-  // ── Arrows ─────────────────────────────────────────────────────────────────
+  // Arrows
   function makeArrow() {
     const group = new THREE.Group();
     const mat = new THREE.MeshStandardMaterial({ color: 0x4fc3f7, emissive: 0x4fc3f7, emissiveIntensity: 0.3 });
@@ -134,55 +116,40 @@
   });
 
   const _up = new THREE.Vector3(0,1,0);
-  const chargeWorldPos = new THREE.Vector3();
-  const chargeLocalPos = new THREE.Vector3();
+  const _localPos = new THREE.Vector3();
 
   function updateArrows() {
-    // Build list of active charge positions in diorama local space
     const activeSources = charges.filter(c => !c.fading).map(c => {
       c.mesh.getWorldPosition(chargeWorldPos);
-      const lp = diorama.worldToLocal(chargeWorldPos.clone());
-      return { pos: lp, type: c.type };
+      return { pos: diorama.worldToLocal(chargeWorldPos.clone()), type: c.type };
     });
 
-    // Update lights
     charges.forEach(c => {
       c.mesh.getWorldPosition(chargeWorldPos);
-      diorama.worldToLocal(chargeLocalPos.copy(chargeWorldPos));
-      c.light.position.copy(chargeLocalPos);
+      c.light.position.copy(diorama.worldToLocal(chargeWorldPos.clone()));
     });
 
+    // Hide all arrows when no charges
+    if (activeSources.length === 0) {
+      faceArrows.forEach(({ mesh }) => { mesh.visible = false; });
+      return;
+    }
+
     faceArrows.forEach(({ mesh, localPos }) => {
+      mesh.visible = true;
       mesh.position.copy(localPos);
 
-      if (activeSources.length === 0) {
-        mesh.scale.setScalar(0.3);
-        mesh.children.forEach(child => {
-          child.material.emissiveIntensity = 0.1;
-          child.material.color.setRGB(0.2, 0.5, 1.0);
-        });
-        mesh.setRotationFromQuaternion(
-          new THREE.Quaternion().setFromUnitVectors(_up, new THREE.Vector3(0,1,0))
-        );
-        return;
-      }
-
-      // Superposition: sum E-field vectors from all charges
+      // Superposition
       const efield = new THREE.Vector3();
       activeSources.forEach(({ pos, type }) => {
         const r = localPos.clone().sub(pos);
         const dist = r.length();
         if (dist < 0.01) return;
-        // E ~ type/r² in the direction away from (positive) or toward (negative) charge
-        r.normalize().multiplyScalar(type / (dist * dist));
-        efield.add(r);
+        efield.add(r.normalize().multiplyScalar(type / (dist * dist)));
       });
 
       const magnitude = efield.length();
-      if (magnitude < 0.001) {
-        mesh.scale.setScalar(0.2);
-        return;
-      }
+      if (magnitude < 0.001) { mesh.visible = false; return; }
 
       const dir = efield.clone().normalize();
       const strength = Math.min(1.0, magnitude * 0.04);
@@ -196,67 +163,62 @@
     });
   }
 
-  // ── Floating Buttons ───────────────────────────────────────────────────────
+  // ── Floating buttons — attached to camera so they follow the player ────────
   function makeButtonTexture(label, color, greyed) {
     const canvas = document.createElement('canvas');
     canvas.width = 256; canvas.height = 128;
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = greyed ? '#333344' : color;
+    ctx.beginPath();
     ctx.roundRect(8, 8, 240, 112, 20);
     ctx.fill();
     ctx.fillStyle = greyed ? '#666677' : '#ffffff';
-    ctx.font = 'bold 52px sans-serif';
+    ctx.font = 'bold 48px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, 128, 64);
     return new THREE.CanvasTexture(canvas);
   }
 
-  function makeButton(label, color, position) {
+  function makeButton(label, color, localPos) {
     const tex = makeButtonTexture(label, color, false);
     const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.11), mat);
-    mesh.position.copy(position);
-    scene.add(mesh);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.12), mat);
+    mesh.position.copy(localPos);
+    // Attach to camera so buttons always float in front of player
+    camera.add(mesh);
     return { mesh, mat, label, color, greyed: false };
   }
 
-  // Position buttons to the right of the cube
-  const btnPosCharge = new THREE.Vector3(0.75, 1.55, -0.8);
-  const btnNegCharge = new THREE.Vector3(0.75, 1.38, -0.8);
-  const btnPos = makeButton('+ POS', '#cc2222', btnPosCharge);
-  const btnNeg = makeButton('+ NEG', '#1155cc', btnNegCharge);
+  // Positioned in camera-local space: slightly right/left, below eye level, arm's length ahead
+  const btnPos = makeButton('+ POS', '#cc2222', new THREE.Vector3( 0.18, -0.25, -0.7));
+  const btnNeg = makeButton('+ NEG', '#1155cc', new THREE.Vector3(-0.18, -0.25, -0.7));
   const buttons = [btnPos, btnNeg];
 
   function updateButtons() {
-    const posMaxed = countActive(1)  >= MAX_POS;
-    const negMaxed = countActive(-1) >= MAX_NEG;
-    setButtonGreyed(btnPos, posMaxed);
-    setButtonGreyed(btnNeg, negMaxed);
+    setButtonGreyed(btnPos, countActive(1)  >= MAX_POS);
+    setButtonGreyed(btnNeg, countActive(-1) >= MAX_NEG);
   }
 
   function setButtonGreyed(btn, greyed) {
     if (btn.greyed === greyed) return;
     btn.greyed = greyed;
+    btn.mat.map.dispose();
     btn.mat.map = makeButtonTexture(btn.label, btn.color, greyed);
-    btn.mat.map.needsUpdate = true;
+    btn.mat.needsUpdate = true;
   }
 
   // ── Controllers ────────────────────────────────────────────────────────────
   const GRAB_RADIUS = 0.5;
-  const THROW_THRESHOLD = 0.018; // world units per frame — fast enough to be a throw
+  const THROW_THRESHOLD = 0.018;
   const raycaster = new THREE.Raycaster();
   const controllers = [];
-
-  // Per-controller state
   const ctrlState = [
     { grabbing: null, prevPos: new THREE.Vector3(), currPos: new THREE.Vector3(), vel: new THREE.Vector3() },
     { grabbing: null, prevPos: new THREE.Vector3(), currPos: new THREE.Vector3(), vel: new THREE.Vector3() },
   ];
-
   let spinController = null;
-  const spinPrevPos = new THREE.Vector3();
-  const spinCurrPos = new THREE.Vector3();
+  const spinPrevPos = new THREE.Vector3(), spinCurrPos = new THREE.Vector3();
 
   for (let i=0; i<2; i++) {
     const ctrl = renderer.xr.getController(i);
@@ -271,25 +233,29 @@
     body.rotation.x = -Math.PI/2;
     ctrl.add(body);
 
-    // Trigger — grab charge or press button
+    // Ray pointer
+    const ray = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-1)]),
+      new THREE.LineBasicMaterial({ color: 0x4fc3f7, transparent: true, opacity: 0.4 })
+    );
+    ray.scale.z = 2;
+    ctrl.add(ray);
+
     ctrl.addEventListener('selectstart', () => {
       if (state.grabbing) return;
-      ctrl.getWorldPosition(state.currPos);
-
-      // Check buttons first (raycast)
+      // Raycast for buttons
       const origin = new THREE.Vector3(), dir = new THREE.Vector3();
       ctrl.getWorldPosition(origin);
       ctrl.getWorldDirection(dir);
       raycaster.set(origin, dir);
-      const btnMeshes = buttons.map(b => b.mesh);
-      const hits = raycaster.intersectObjects(btnMeshes);
+      const hits = raycaster.intersectObjects(buttons.map(b => b.mesh));
       if (hits.length > 0) {
         const hit = hits[0].object;
         if (hit === btnPos.mesh && !btnPos.greyed) { spawnCharge(1); return; }
         if (hit === btnNeg.mesh && !btnNeg.greyed) { spawnCharge(-1); return; }
       }
-
-      // Try grab closest charge within radius
+      // Grab closest charge
+      ctrl.getWorldPosition(state.currPos);
       let closest = null, closestDist = GRAB_RADIUS;
       charges.forEach(ch => {
         if (ch.fading) return;
@@ -311,14 +277,10 @@
       state.grabbing = null;
       ch.grabbed = false;
       ch.mesh.material.emissiveIntensity = 0.5;
-
-      // Check throw velocity
-      const speed = state.vel.length();
-      if (speed > THROW_THRESHOLD) {
-        // Throw! — detach to scene so it flies in world space
+      if (state.vel.length() > THROW_THRESHOLD) {
         scene.attach(ch.mesh);
-        diorama.remove(ch.light);
         scene.add(ch.light);
+        diorama.remove(ch.light);
         ch.fading = true;
         ch.life = 1.0;
         ch.velocity.copy(state.vel).multiplyScalar(1.5);
@@ -328,7 +290,6 @@
       }
     });
 
-    // Grip — spin diorama
     ctrl.addEventListener('squeezestart', () => {
       if (spinController) return;
       spinController = ctrl;
@@ -340,7 +301,6 @@
     });
   }
 
-  // ── Fading charges ─────────────────────────────────────────────────────────
   function updateFading() {
     const toRemove = [];
     charges.forEach(ch => {
@@ -349,13 +309,12 @@
       ch.mesh.position.addScaledVector(ch.velocity, 1.0);
       ch.velocity.multiplyScalar(0.96);
       ch.mesh.material.opacity = Math.max(0, ch.life);
-      ch.light.intensity = ch.life;
+      ch.light.intensity = Math.max(0, ch.life);
       if (ch.life <= 0) toRemove.push(ch);
     });
-    toRemove.forEach(ch => removeCharge(ch));
+    toRemove.forEach(removeCharge);
   }
 
-  // ── Proximity highlight ────────────────────────────────────────────────────
   const _ctrlWP = new THREE.Vector3();
   function updateProximity() {
     charges.forEach(ch => {
@@ -370,7 +329,6 @@
     });
   }
 
-  // ── Velocity tracking ──────────────────────────────────────────────────────
   function updateControllerVelocities() {
     controllers.forEach((ctrl, i) => {
       const state = ctrlState[i];
@@ -380,7 +338,6 @@
     });
   }
 
-  // ── Spin ───────────────────────────────────────────────────────────────────
   function updateSpin() {
     if (!spinController) return;
     spinController.getWorldPosition(spinCurrPos);
@@ -391,7 +348,6 @@
     spinPrevPos.copy(spinCurrPos);
   }
 
-  // ── Locomotion ─────────────────────────────────────────────────────────────
   const SNAP_ANGLE = Math.PI/6;
   let snapCooled = true;
   const moveDir = new THREE.Vector3(), camDir = new THREE.Vector3();
@@ -419,7 +375,6 @@
     }
   }
 
-  // ── Render loop ────────────────────────────────────────────────────────────
   renderer.setAnimationLoop(() => {
     updateControllerVelocities();
     handleLocomotion();
@@ -430,7 +385,6 @@
     renderer.render(scene, camera);
   });
 
-  // ── VR Button ──────────────────────────────────────────────────────────────
   const btn = document.createElement('button');
   Object.assign(btn.style, {
     position:'absolute', bottom:'30px', left:'50%', transform:'translateX(-50%)',
