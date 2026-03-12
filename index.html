@@ -243,17 +243,16 @@
 
     ctrl.addEventListener('selectstart', () => {
       if (state.grabbing) return;
-      // Raycast for buttons
-      const origin = new THREE.Vector3(), dir = new THREE.Vector3();
-      ctrl.getWorldPosition(origin);
-      ctrl.getWorldDirection(dir);
-      raycaster.set(origin, dir);
-      const hits = raycaster.intersectObjects(buttons.map(b => b.mesh));
-      if (hits.length > 0) {
-        const hit = hits[0].object;
-        if (hit === btnPos.mesh && !btnPos.greyed) { spawnCharge(1); return; }
-        if (hit === btnNeg.mesh && !btnNeg.greyed) { spawnCharge(-1); return; }
-      }
+      ctrl.getWorldPosition(state.currPos);
+
+      // Proximity check for buttons
+      const BTN_RADIUS = 0.25;
+      const btnWP = new THREE.Vector3();
+      btnPos.mesh.getWorldPosition(btnWP);
+      if (!btnPos.greyed && state.currPos.distanceTo(btnWP) < BTN_RADIUS) { spawnCharge(1); return; }
+      btnNeg.mesh.getWorldPosition(btnWP);
+      if (!btnNeg.greyed && state.currPos.distanceTo(btnWP) < BTN_RADIUS) { spawnCharge(-1); return; }
+
       // Grab closest charge
       ctrl.getWorldPosition(state.currPos);
       let closest = null, closestDist = GRAB_RADIUS;
