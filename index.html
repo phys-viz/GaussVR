@@ -163,39 +163,45 @@
     });
   }
 
-  // ── Floating label below cube ─────────────────────────────────────────────
-  function makeLabelTexture(posCount, negCount) {
+  // ── Floating labels below cube ────────────────────────────────────────────
+  function makeSingleLabel(text, color) {
     const canvas = document.createElement('canvas');
     canvas.width = 512; canvas.height = 128;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, 512, 128);
-    ctx.fillStyle = 'rgba(10,10,30,0.75)';
+    ctx.fillStyle = 'rgba(10,10,30,0.85)';
     ctx.beginPath();
     ctx.roundRect(4, 4, 504, 120, 16);
     ctx.fill();
-    ctx.font = 'bold 44px sans-serif';
+    ctx.fillStyle = color;
+    ctx.font = 'bold 56px sans-serif';
+    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    // A button
-    ctx.fillStyle = posCount >= MAX_POS ? '#886666' : '#ff6666';
-    ctx.textAlign = 'left';
-    ctx.fillText('A = +POS (' + posCount + '/2)', 20, 64);
-    // B button
-    ctx.fillStyle = negCount >= MAX_NEG ? '#666688' : '#6699ff';
-    ctx.textAlign = 'right';
-    ctx.fillText('B = −NEG (' + negCount + '/2)', 492, 64);
+    ctx.fillText(text, 256, 64);
     return new THREE.CanvasTexture(canvas);
   }
 
-  const labelMat = new THREE.MeshBasicMaterial({ map: makeLabelTexture(0,0), transparent: true, side: THREE.DoubleSide });
-  const labelMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.15), labelMat);
-  labelMesh.position.set(0, 0.75, -0.8);
-  labelMesh.rotation.x = -0.2;
-  scene.add(labelMesh);
+  const labelAMat = new THREE.MeshBasicMaterial({ map: makeSingleLabel('A = + Charge (0/2)', '#ff6666'), transparent: true, side: THREE.DoubleSide });
+  const labelBMat = new THREE.MeshBasicMaterial({ map: makeSingleLabel('B = - Charge (0/2)', '#6699ff'), transparent: true, side: THREE.DoubleSide });
+
+  const labelA = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.14), labelAMat);
+  labelA.position.set(0, 0.82, -0.8);
+  labelA.rotation.x = -0.2;
+  scene.add(labelA);
+
+  const labelB = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.14), labelBMat);
+  labelB.position.set(0, 0.65, -0.8);
+  labelB.rotation.x = -0.2;
+  scene.add(labelB);
 
   function updateButtons() {
-    labelMat.map.dispose();
-    labelMat.map = makeLabelTexture(countActive(1), countActive(-1));
-    labelMat.needsUpdate = true;
+    const pc = countActive(1), nc = countActive(-1);
+    labelAMat.map.dispose();
+    labelAMat.map = makeSingleLabel('A = + Charge (' + pc + '/2)', pc >= MAX_POS ? '#886666' : '#ff6666');
+    labelAMat.needsUpdate = true;
+    labelBMat.map.dispose();
+    labelBMat.map = makeSingleLabel('B = - Charge (' + nc + '/2)', nc >= MAX_NEG ? '#666688' : '#6699ff');
+    labelBMat.needsUpdate = true;
   }
 
   // ── Controllers ────────────────────────────────────────────────────────────
