@@ -395,7 +395,7 @@
     if (!spinController) return;
     spinController.getWorldPosition(spinCurrPos);
     const delta = spinCurrPos.clone().sub(spinPrevPos);
-    diorama.rotation.y -= delta.x * 3.0;
+    diorama.rotation.y += delta.x * 3.0;
     diorama.rotation.x -= delta.y * 3.0;
     spinPrevPos.copy(spinCurrPos);
   }
