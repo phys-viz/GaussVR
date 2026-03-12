@@ -163,49 +163,39 @@
     });
   }
 
-  // ── Floating buttons — attached to camera so they follow the player ────────
-  function makeButtonTexture(label, color, greyed) {
+  // ── Floating label below cube ─────────────────────────────────────────────
+  function makeLabelTexture(posCount, negCount) {
     const canvas = document.createElement('canvas');
-    canvas.width = 256; canvas.height = 128;
+    canvas.width = 512; canvas.height = 128;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = greyed ? '#333344' : color;
+    ctx.clearRect(0, 0, 512, 128);
+    ctx.fillStyle = 'rgba(10,10,30,0.75)';
     ctx.beginPath();
-    ctx.roundRect(8, 8, 240, 112, 20);
+    ctx.roundRect(4, 4, 504, 120, 16);
     ctx.fill();
-    ctx.fillStyle = greyed ? '#666677' : '#ffffff';
-    ctx.font = 'bold 48px sans-serif';
-    ctx.textAlign = 'center';
+    ctx.font = 'bold 44px sans-serif';
     ctx.textBaseline = 'middle';
-    ctx.fillText(label, 128, 64);
+    // A button
+    ctx.fillStyle = posCount >= MAX_POS ? '#886666' : '#ff6666';
+    ctx.textAlign = 'left';
+    ctx.fillText('A = +POS (' + posCount + '/2)', 20, 64);
+    // B button
+    ctx.fillStyle = negCount >= MAX_NEG ? '#666688' : '#6699ff';
+    ctx.textAlign = 'right';
+    ctx.fillText('B = −NEG (' + negCount + '/2)', 492, 64);
     return new THREE.CanvasTexture(canvas);
   }
 
-  function makeButton(label, color, worldPos) {
-    const tex = makeButtonTexture(label, color, false);
-    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.13), mat);
-    mesh.position.copy(worldPos);
-    mesh.rotation.x = -0.3; // tilt slightly toward user
-    scene.add(mesh);
-    return { mesh, mat, label, color, greyed: false };
-  }
-
-  // Fixed below the cube, easy to reach
-  const btnPos = makeButton('+ POS', '#cc2222', new THREE.Vector3(-0.2, 0.75, -0.8));
-  const btnNeg = makeButton('+ NEG', '#1155cc', new THREE.Vector3( 0.2, 0.75, -0.8));
-  const buttons = [btnPos, btnNeg];
+  const labelMat = new THREE.MeshBasicMaterial({ map: makeLabelTexture(0,0), transparent: true, side: THREE.DoubleSide });
+  const labelMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.15), labelMat);
+  labelMesh.position.set(0, 0.75, -0.8);
+  labelMesh.rotation.x = -0.2;
+  scene.add(labelMesh);
 
   function updateButtons() {
-    setButtonGreyed(btnPos, countActive(1)  >= MAX_POS);
-    setButtonGreyed(btnNeg, countActive(-1) >= MAX_NEG);
-  }
-
-  function setButtonGreyed(btn, greyed) {
-    if (btn.greyed === greyed) return;
-    btn.greyed = greyed;
-    btn.mat.map.dispose();
-    btn.mat.map = makeButtonTexture(btn.label, btn.color, greyed);
-    btn.mat.needsUpdate = true;
+    labelMat.map.dispose();
+    labelMat.map = makeLabelTexture(countActive(1), countActive(-1));
+    labelMat.needsUpdate = true;
   }
 
   // ── Controllers ────────────────────────────────────────────────────────────
@@ -245,16 +235,7 @@
       if (state.grabbing) return;
       ctrl.getWorldPosition(state.currPos);
 
-      // Proximity check for buttons
-      const BTN_RADIUS = 0.25;
-      const btnWP = new THREE.Vector3();
-      btnPos.mesh.getWorldPosition(btnWP);
-      if (!btnPos.greyed && state.currPos.distanceTo(btnWP) < BTN_RADIUS) { spawnCharge(1); return; }
-      btnNeg.mesh.getWorldPosition(btnWP);
-      if (!btnNeg.greyed && state.currPos.distanceTo(btnWP) < BTN_RADIUS) { spawnCharge(-1); return; }
-
       // Grab closest charge
-      ctrl.getWorldPosition(state.currPos);
       let closest = null, closestDist = GRAB_RADIUS;
       charges.forEach(ch => {
         if (ch.fading) return;
@@ -347,6 +328,25 @@
     spinPrevPos.copy(spinCurrPos);
   }
 
+  // ── A/B button spawning ───────────────────────────────────────────────────
+  let aCooled = true, bCooled = true;
+
+  function handleSpawnButtons() {
+    const session = renderer.xr.getSession();
+    if (!session) return;
+    for (const source of session.inputSources) {
+      if (!source.gamepad || source.handedness !== 'right') continue;
+      const btns = source.gamepad.buttons;
+      // Quest 2: button[4] = A, button[5] = B
+      const aPressed = btns[4] && btns[4].pressed;
+      const bPressed = btns[5] && btns[5].pressed;
+      if (aPressed && aCooled) { spawnCharge(1);  aCooled = false; }
+      if (!aPressed) aCooled = true;
+      if (bPressed && bCooled) { spawnCharge(-1); bCooled = false; }
+      if (!bPressed) bCooled = true;
+    }
+  }
+
   const SNAP_ANGLE = Math.PI/6;
   let snapCooled = true;
   const moveDir = new THREE.Vector3(), camDir = new THREE.Vector3();
@@ -377,6 +377,7 @@
   renderer.setAnimationLoop(() => {
     updateControllerVelocities();
     handleLocomotion();
+    handleSpawnButtons();
     updateSpin();
     updateFading();
     updateArrows();
