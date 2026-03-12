@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>VR Gauss's Law</title>
+  <title>Gauss VR</title>
+  <link rel="manifest" href="manifest.json">
   <style>* { margin:0; padding:0; box-sizing:border-box; } body { background:#0a0a1a; overflow:hidden; }</style>
 </head>
 <body>
@@ -253,6 +254,11 @@
     btn.textContent = 'Exit VR';
     session.addEventListener('end', () => { btn.textContent = 'Enter VR'; });
   });
+
+  // Register service worker for PWA/offline support
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js');
+  }
 
   window.addEventListener('resize', () => {
     camera.aspect = innerWidth/innerHeight;
