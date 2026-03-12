@@ -19,6 +19,49 @@
   renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
 
+  // ── Audio ──────────────────────────────────────────────────────────────────
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  function playPop(freq, duration) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.3, audioCtx.currentTime + duration);
+    gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.start(); osc.stop(audioCtx.currentTime + duration);
+  }
+
+  function playWhoosh() {
+    const bufSize = audioCtx.sampleRate * 0.3;
+    const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = (Math.random()*2-1) * (1 - i/bufSize);
+    const src = audioCtx.createBufferSource();
+    const filter = audioCtx.createBiquadFilter();
+    const gain = audioCtx.createGain();
+    filter.type = 'bandpass'; filter.frequency.value = 800;
+    src.buffer = buf;
+    src.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+    src.start();
+  }
+
+  // ── Haptics ────────────────────────────────────────────────────────────────
+  function haptic(controller, intensity, duration) {
+    const session = renderer.xr.getSession();
+    if (!session) return;
+    for (const source of session.inputSources) {
+      const ctrl = renderer.xr.getController(source.handedness === 'left' ? 0 : 1);
+      if (ctrl === controller && source.gamepad && source.gamepad.hapticActuators && source.gamepad.hapticActuators[0]) {
+        source.gamepad.hapticActuators[0].pulse(intensity, duration);
+      }
+    }
+  }
+
   const player = new THREE.Group();
   player.add(camera);
   scene.add(player);
@@ -73,6 +116,8 @@
     diorama.add(light);
     charges.push({ mesh, light, type, fading: false, velocity: new THREE.Vector3(), life: 1.0, grabbed: false });
     updateButtons();
+    // Sound: high pop for positive, low pop for negative
+    playPop(type > 0 ? 880 : 220, 0.25);
   }
 
   function removeCharge(ch) {
@@ -166,30 +211,35 @@
   // ── Floating labels below cube ────────────────────────────────────────────
   function makeSingleLabel(text, color) {
     const canvas = document.createElement('canvas');
-    canvas.width = 512; canvas.height = 48;
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, 512, 48);
-    ctx.fillStyle = 'rgba(10,10,30,0.85)';
+    // Measure text first, size canvas to fit
+    canvas.width = 2; canvas.height = 2;
+    const tmpCtx = canvas.getContext('2d');
+    tmpCtx.font = 'bold 28px sans-serif';
+    const w = Math.ceil(tmpCtx.measureText(text).width) + 24;
+    const h = 44;
+    canvas.width = w; canvas.height = h;
+    ctx.fillStyle = 'rgba(10,10,30,0.88)';
     ctx.beginPath();
-    ctx.roundRect(2, 2, 508, 44, 8);
+    ctx.roundRect(0, 0, w, h, 8);
     ctx.fill();
     ctx.fillStyle = color;
-    ctx.font = 'bold 26px sans-serif';
+    ctx.font = 'bold 28px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, 256, 24);
+    ctx.fillText(text, w/2, h/2);
     return new THREE.CanvasTexture(canvas);
   }
 
   const labelAMat = new THREE.MeshBasicMaterial({ map: makeSingleLabel('A = + Charge (0/2)', '#ff6666'), transparent: true, side: THREE.DoubleSide });
   const labelBMat = new THREE.MeshBasicMaterial({ map: makeSingleLabel('B = - Charge (0/2)', '#6699ff'), transparent: true, side: THREE.DoubleSide });
 
-  const labelA = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 0.04), labelAMat);
+  const labelA = new THREE.Mesh(new THREE.PlaneGeometry(0.38, 0.055), labelAMat);
   labelA.position.set(0, 0.82, -0.8);
   labelA.rotation.x = -0.2;
   scene.add(labelA);
 
-  const labelB = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 0.04), labelBMat);
+  const labelB = new THREE.Mesh(new THREE.PlaneGeometry(0.38, 0.055), labelBMat);
   labelB.position.set(0, 0.65, -0.8);
   labelB.rotation.x = -0.2;
   scene.add(labelB);
@@ -254,6 +304,8 @@
         closest.grabbed = true;
         closest.mesh.material.emissiveIntensity = 1.0;
         ctrl.attach(closest.mesh);
+        haptic(ctrl, 0.5, 80);
+        playPop(440, 0.1);
       }
     });
 
@@ -271,6 +323,8 @@
         ch.life = 1.0;
         ch.velocity.copy(state.vel).multiplyScalar(1.5);
         updateButtons();
+        haptic(ctrl, 1.0, 150);
+        playWhoosh();
       } else {
         diorama.attach(ch.mesh);
       }
@@ -408,6 +462,7 @@
       optionalFeatures: ['local-floor','bounded-floor']
     });
     renderer.xr.setSession(session);
+    audioCtx.resume();
     btn.textContent = 'Exit VR';
     session.addEventListener('end', () => { btn.textContent = 'Enter VR'; });
   });
