@@ -166,30 +166,30 @@
   // ── Floating labels below cube ────────────────────────────────────────────
   function makeSingleLabel(text, color) {
     const canvas = document.createElement('canvas');
-    canvas.width = 800; canvas.height = 128;
+    canvas.width = 800; canvas.height = 80;
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, 800, 128);
+    ctx.clearRect(0, 0, 800, 80);
     ctx.fillStyle = 'rgba(10,10,30,0.85)';
     ctx.beginPath();
-    ctx.roundRect(4, 4, 792, 120, 16);
+    ctx.roundRect(4, 4, 792, 72, 12);
     ctx.fill();
     ctx.fillStyle = color;
-    ctx.font = 'bold 42px sans-serif';
+    ctx.font = 'bold 36px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, 400, 64);
+    ctx.fillText(text, 400, 40);
     return new THREE.CanvasTexture(canvas);
   }
 
   const labelAMat = new THREE.MeshBasicMaterial({ map: makeSingleLabel('A = + Charge (0/2)', '#ff6666'), transparent: true, side: THREE.DoubleSide });
   const labelBMat = new THREE.MeshBasicMaterial({ map: makeSingleLabel('B = - Charge (0/2)', '#6699ff'), transparent: true, side: THREE.DoubleSide });
 
-  const labelA = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.14), labelAMat);
+  const labelA = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.08), labelAMat);
   labelA.position.set(0, 0.82, -0.8);
   labelA.rotation.x = -0.2;
   scene.add(labelA);
 
-  const labelB = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.14), labelBMat);
+  const labelB = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.08), labelBMat);
   labelB.position.set(0, 0.65, -0.8);
   labelB.rotation.x = -0.2;
   scene.add(labelB);
