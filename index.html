@@ -402,7 +402,6 @@
     const delta = spinCurrPos.clone().sub(spinPrevPos);
     diorama.rotation.y += delta.x * 3.0;
     diorama.rotation.x -= delta.y * 3.0;
-    diorama.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, diorama.rotation.x));
     spinPrevPos.copy(spinCurrPos);
   }
 
