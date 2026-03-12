@@ -272,12 +272,41 @@
     player.add(ctrl);
     controllers.push(ctrl);
 
-    const body = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.012,0.018,0.12,10),
-      new THREE.MeshStandardMaterial({ color: 0xdddddd })
+    // ── Hand shape ──────────────────────────────────────────────────────────
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xffccaa, roughness: 0.8 });
+    const handGroup = new THREE.Group();
+    handGroup.rotation.x = -Math.PI / 2;
+
+    // Palm
+    const palm = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.03, 0.09), skinMat);
+    handGroup.add(palm);
+
+    // Fingers
+    const fingerData = [
+      { x: -0.03, len: 0.055 }, // index
+      { x: -0.01, len: 0.062 }, // middle
+      { x:  0.01, len: 0.058 }, // ring
+      { x:  0.03, len: 0.048 }, // pinky
+    ];
+    fingerData.forEach(f => {
+      const finger = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.007, 0.008, f.len, 6),
+        skinMat
+      );
+      finger.position.set(f.x, 0, -(0.045 + f.len / 2));
+      handGroup.add(finger);
+    });
+
+    // Thumb
+    const thumb = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.009, 0.010, 0.045, 6),
+      skinMat
     );
-    body.rotation.x = -Math.PI/2;
-    ctrl.add(body);
+    thumb.rotation.z = Math.PI / 3.5;
+    thumb.position.set(-0.052, 0, -0.02);
+    handGroup.add(thumb);
+
+    ctrl.add(handGroup);
 
     // Ray pointer
     const ray = new THREE.Line(
@@ -400,7 +429,7 @@
     if (!spinController) return;
     spinController.getWorldPosition(spinCurrPos);
     const delta = spinCurrPos.clone().sub(spinPrevPos);
-    diorama.rotation.y += delta.x * 3.0;
+    diorama.rotation.y -= delta.x * 3.0;
     diorama.rotation.x -= delta.y * 3.0;
     spinPrevPos.copy(spinCurrPos);
   }
