@@ -9,6 +9,7 @@
 <body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
+  // ── Renderer & Scene ───────────────────────────────────────────────────────
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a1a);
   const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.01, 50);
@@ -28,6 +29,7 @@
   sun.position.set(2, 4, 2);
   scene.add(sun);
 
+  // Floor
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(10,10),
     new THREE.MeshStandardMaterial({ color: 0x111122 })
@@ -36,12 +38,11 @@
   scene.add(floor);
   scene.add(new THREE.GridHelper(10, 20, 0x223344, 0x1a2233));
 
-  // Diorama group — cube, charge, arrows all spin together
+  // ── Diorama ────────────────────────────────────────────────────────────────
   const diorama = new THREE.Group();
   diorama.position.set(0, 1.4, -0.8);
   scene.add(diorama);
 
-  // Cube
   const CUBE_SIZE = 0.8;
   diorama.add(new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.BoxGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE)),
@@ -52,26 +53,67 @@
     new THREE.MeshStandardMaterial({ color: 0x4fc3f7, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
   ));
 
-  // Charge
-  const chargeMat = new THREE.MeshStandardMaterial({ color: 0xff4444, emissive: 0xff2222, emissiveIntensity: 0.4 });
-  const charge = new THREE.Mesh(new THREE.SphereGeometry(0.09, 32, 32), chargeMat);
-  charge.position.set(0, 0, 0);
-  diorama.add(charge);
-  const chargeLight = new THREE.PointLight(0xff4444, 1.2, 3);
-  diorama.add(chargeLight);
+  // ── Charge System ──────────────────────────────────────────────────────────
+  const charges = []; // { mesh, light, type, fading, velocity, life, grabbed }
+  const MAX_POS = 2, MAX_NEG = 2;
 
-  // Arrows
+  function countActive(type) {
+    return charges.filter(c => c.type === type && !c.fading).length;
+  }
+
+  function makeChargeMesh(type) {
+    const color  = type > 0 ? 0xff4444 : 0x44aaff;
+    const emissive = type > 0 ? 0xff2222 : 0x2266ff;
+    const mat = new THREE.MeshStandardMaterial({
+      color, emissive, emissiveIntensity: 0.5,
+      transparent: true, opacity: 1.0
+    });
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 32, 32), mat);
+    return mesh;
+  }
+
+  function spawnCharge(type) {
+    if (type > 0 && countActive(1)  >= MAX_POS) return;
+    if (type < 0 && countActive(-1) >= MAX_NEG) return;
+
+    const mesh = makeChargeMesh(type);
+    // Spawn offset so multiple charges don't stack
+    const offset = new THREE.Vector3(
+      (Math.random()-0.5)*0.3,
+      (Math.random()-0.5)*0.3,
+      (Math.random()-0.5)*0.3
+    );
+    mesh.position.copy(offset);
+    diorama.add(mesh);
+
+    const lightColor = type > 0 ? 0xff4444 : 0x4488ff;
+    const light = new THREE.PointLight(lightColor, 1.0, 2.5);
+    diorama.add(light);
+
+    charges.push({ mesh, light, type, fading: false, velocity: new THREE.Vector3(), life: 1.0, grabbed: false });
+    updateButtons();
+  }
+
+  function removeCharge(ch) {
+    diorama.remove(ch.mesh);
+    scene.remove(ch.mesh); // in case it was detached to scene during grab
+    diorama.remove(ch.light);
+    charges.splice(charges.indexOf(ch), 1);
+    updateButtons();
+  }
+
+  // ── Arrows ─────────────────────────────────────────────────────────────────
   function makeArrow() {
     const group = new THREE.Group();
     const mat = new THREE.MeshStandardMaterial({ color: 0x4fc3f7, emissive: 0x4fc3f7, emissiveIntensity: 0.3 });
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.18, 8), mat.clone());
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,0.18,8), mat.clone());
     shaft.position.y = 0.09; group.add(shaft);
-    const head = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.06, 8), mat.clone());
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.02,0.06,8), mat.clone());
     head.position.y = 0.21; group.add(head);
     return group;
   }
 
-  const GRID = 3, halfSize = CUBE_SIZE/2, step = CUBE_SIZE/(GRID+1);
+  const GRID=3, halfSize=CUBE_SIZE/2, step=CUBE_SIZE/(GRID+1);
   const faceConfigs = [
     { normal: new THREE.Vector3( 1,0,0), up: new THREE.Vector3(0,1,0), right: new THREE.Vector3(0,0,-1) },
     { normal: new THREE.Vector3(-1,0,0), up: new THREE.Vector3(0,1,0), right: new THREE.Vector3(0,0, 1) },
@@ -82,14 +124,12 @@
   ];
   const faceArrows = [];
   faceConfigs.forEach(({ normal, up, right }) => {
-    for (let i = 1; i <= GRID; i++) {
-      for (let j = 1; j <= GRID; j++) {
-        const u = (i-(GRID+1)/2)*step, v = (j-(GRID+1)/2)*step;
-        const localPos = normal.clone().multiplyScalar(halfSize).addScaledVector(up,u).addScaledVector(right,v);
-        const arrow = makeArrow();
-        diorama.add(arrow);
-        faceArrows.push({ mesh: arrow, localPos });
-      }
+    for (let i=1; i<=GRID; i++) for (let j=1; j<=GRID; j++) {
+      const u=(i-(GRID+1)/2)*step, v=(j-(GRID+1)/2)*step;
+      const localPos = normal.clone().multiplyScalar(halfSize).addScaledVector(up,u).addScaledVector(right,v);
+      const arrow = makeArrow();
+      diorama.add(arrow);
+      faceArrows.push({ mesh: arrow, localPos });
     }
   });
 
@@ -98,67 +138,197 @@
   const chargeLocalPos = new THREE.Vector3();
 
   function updateArrows() {
-    // Always get world position — works whether charge is in diorama or held by controller
-    charge.getWorldPosition(chargeWorldPos);
-    // Convert to diorama local space for arrow calculations
-    diorama.worldToLocal(chargeLocalPos.copy(chargeWorldPos));
-    chargeLight.position.copy(chargeLocalPos);
+    // Build list of active charge positions in diorama local space
+    const activeSources = charges.filter(c => !c.fading).map(c => {
+      c.mesh.getWorldPosition(chargeWorldPos);
+      const lp = diorama.worldToLocal(chargeWorldPos.clone());
+      return { pos: lp, type: c.type };
+    });
+
+    // Update lights
+    charges.forEach(c => {
+      c.mesh.getWorldPosition(chargeWorldPos);
+      diorama.worldToLocal(chargeLocalPos.copy(chargeWorldPos));
+      c.light.position.copy(chargeLocalPos);
+    });
 
     faceArrows.forEach(({ mesh, localPos }) => {
       mesh.position.copy(localPos);
-      const dir = localPos.clone().sub(chargeLocalPos).normalize();
-      const dist = localPos.distanceTo(chargeLocalPos);
-      const strength = Math.min(1.0, 0.04/(dist*dist));
-      mesh.scale.setScalar(0.5 + strength*1.5);
-      const intensity = Math.min(1.0, strength*3);
+
+      if (activeSources.length === 0) {
+        mesh.scale.setScalar(0.3);
+        mesh.children.forEach(child => {
+          child.material.emissiveIntensity = 0.1;
+          child.material.color.setRGB(0.2, 0.5, 1.0);
+        });
+        mesh.setRotationFromQuaternion(
+          new THREE.Quaternion().setFromUnitVectors(_up, new THREE.Vector3(0,1,0))
+        );
+        return;
+      }
+
+      // Superposition: sum E-field vectors from all charges
+      const efield = new THREE.Vector3();
+      activeSources.forEach(({ pos, type }) => {
+        const r = localPos.clone().sub(pos);
+        const dist = r.length();
+        if (dist < 0.01) return;
+        // E ~ type/r² in the direction away from (positive) or toward (negative) charge
+        r.normalize().multiplyScalar(type / (dist * dist));
+        efield.add(r);
+      });
+
+      const magnitude = efield.length();
+      if (magnitude < 0.001) {
+        mesh.scale.setScalar(0.2);
+        return;
+      }
+
+      const dir = efield.clone().normalize();
+      const strength = Math.min(1.0, magnitude * 0.04);
+      mesh.scale.setScalar(0.4 + strength * 1.6);
+      const intensity = Math.min(1.0, strength * 3);
       mesh.children.forEach(child => {
-        child.material.emissiveIntensity = 0.1 + intensity*0.8;
+        child.material.emissiveIntensity = 0.1 + intensity * 0.8;
         child.material.color.setRGB(intensity*0.3+0.1, intensity*0.6+0.3, 1.0);
       });
       mesh.setRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(_up, dir));
     });
   }
-  updateArrows();
 
-  // Controllers
-  let chargeGrabController = null;
+  // ── Floating Buttons ───────────────────────────────────────────────────────
+  function makeButtonTexture(label, color, greyed) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = greyed ? '#333344' : color;
+    ctx.roundRect(8, 8, 240, 112, 20);
+    ctx.fill();
+    ctx.fillStyle = greyed ? '#666677' : '#ffffff';
+    ctx.font = 'bold 52px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, 128, 64);
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  function makeButton(label, color, position) {
+    const tex = makeButtonTexture(label, color, false);
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.11), mat);
+    mesh.position.copy(position);
+    scene.add(mesh);
+    return { mesh, mat, label, color, greyed: false };
+  }
+
+  // Position buttons to the right of the cube
+  const btnPosCharge = new THREE.Vector3(0.75, 1.55, -0.8);
+  const btnNegCharge = new THREE.Vector3(0.75, 1.38, -0.8);
+  const btnPos = makeButton('+ POS', '#cc2222', btnPosCharge);
+  const btnNeg = makeButton('+ NEG', '#1155cc', btnNegCharge);
+  const buttons = [btnPos, btnNeg];
+
+  function updateButtons() {
+    const posMaxed = countActive(1)  >= MAX_POS;
+    const negMaxed = countActive(-1) >= MAX_NEG;
+    setButtonGreyed(btnPos, posMaxed);
+    setButtonGreyed(btnNeg, negMaxed);
+  }
+
+  function setButtonGreyed(btn, greyed) {
+    if (btn.greyed === greyed) return;
+    btn.greyed = greyed;
+    btn.mat.map = makeButtonTexture(btn.label, btn.color, greyed);
+    btn.mat.map.needsUpdate = true;
+  }
+
+  // ── Controllers ────────────────────────────────────────────────────────────
+  const GRAB_RADIUS = 0.5;
+  const THROW_THRESHOLD = 0.018; // world units per frame — fast enough to be a throw
+  const raycaster = new THREE.Raycaster();
+  const controllers = [];
+
+  // Per-controller state
+  const ctrlState = [
+    { grabbing: null, prevPos: new THREE.Vector3(), currPos: new THREE.Vector3(), vel: new THREE.Vector3() },
+    { grabbing: null, prevPos: new THREE.Vector3(), currPos: new THREE.Vector3(), vel: new THREE.Vector3() },
+  ];
+
   let spinController = null;
   const spinPrevPos = new THREE.Vector3();
   const spinCurrPos = new THREE.Vector3();
-  const ctrlWorldPos = new THREE.Vector3();
-  const ctrlLocalPos = new THREE.Vector3();
-  const controllers = [];
 
-  for (let i = 0; i < 2; i++) {
+  for (let i=0; i<2; i++) {
     const ctrl = renderer.xr.getController(i);
+    const state = ctrlState[i];
     player.add(ctrl);
     controllers.push(ctrl);
+
     const body = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.012, 0.018, 0.12, 10),
+      new THREE.CylinderGeometry(0.012,0.018,0.12,10),
       new THREE.MeshStandardMaterial({ color: 0xdddddd })
     );
     body.rotation.x = -Math.PI/2;
     ctrl.add(body);
 
-    // Trigger = grab charge
+    // Trigger — grab charge or press button
     ctrl.addEventListener('selectstart', () => {
-      if (chargeGrabController) return;
-      ctrl.getWorldPosition(ctrlWorldPos);
-      diorama.worldToLocal(ctrlLocalPos.copy(ctrlWorldPos));
-      if (ctrlLocalPos.distanceTo(charge.position) < 0.5) {
-        chargeGrabController = ctrl;
-        chargeMat.emissiveIntensity = 1.0;
-        ctrl.attach(charge);
+      if (state.grabbing) return;
+      ctrl.getWorldPosition(state.currPos);
+
+      // Check buttons first (raycast)
+      const origin = new THREE.Vector3(), dir = new THREE.Vector3();
+      ctrl.getWorldPosition(origin);
+      ctrl.getWorldDirection(dir);
+      raycaster.set(origin, dir);
+      const btnMeshes = buttons.map(b => b.mesh);
+      const hits = raycaster.intersectObjects(btnMeshes);
+      if (hits.length > 0) {
+        const hit = hits[0].object;
+        if (hit === btnPos.mesh && !btnPos.greyed) { spawnCharge(1); return; }
+        if (hit === btnNeg.mesh && !btnNeg.greyed) { spawnCharge(-1); return; }
+      }
+
+      // Try grab closest charge within radius
+      let closest = null, closestDist = GRAB_RADIUS;
+      charges.forEach(ch => {
+        if (ch.fading) return;
+        ch.mesh.getWorldPosition(chargeWorldPos);
+        const d = state.currPos.distanceTo(chargeWorldPos);
+        if (d < closestDist) { closestDist = d; closest = ch; }
+      });
+      if (closest) {
+        state.grabbing = closest;
+        closest.grabbed = true;
+        closest.mesh.material.emissiveIntensity = 1.0;
+        ctrl.attach(closest.mesh);
       }
     });
+
     ctrl.addEventListener('selectend', () => {
-      if (chargeGrabController !== ctrl) return;
-      diorama.attach(charge);
-      chargeMat.emissiveIntensity = 0.4;
-      chargeGrabController = null;
+      if (!state.grabbing) return;
+      const ch = state.grabbing;
+      state.grabbing = null;
+      ch.grabbed = false;
+      ch.mesh.material.emissiveIntensity = 0.5;
+
+      // Check throw velocity
+      const speed = state.vel.length();
+      if (speed > THROW_THRESHOLD) {
+        // Throw! — detach to scene so it flies in world space
+        scene.attach(ch.mesh);
+        diorama.remove(ch.light);
+        scene.add(ch.light);
+        ch.fading = true;
+        ch.life = 1.0;
+        ch.velocity.copy(state.vel).multiplyScalar(1.5);
+        updateButtons();
+      } else {
+        diorama.attach(ch.mesh);
+      }
     });
 
-    // Grip = spin diorama — generous detection, just be anywhere near the scene
+    // Grip — spin diorama
     ctrl.addEventListener('squeezestart', () => {
       if (spinController) return;
       spinController = ctrl;
@@ -170,30 +340,58 @@
     });
   }
 
-  function updateProximity() {
-    if (chargeGrabController) return;
-    let near = false;
-    controllers.forEach(ctrl => {
-      ctrl.getWorldPosition(ctrlWorldPos);
-      diorama.worldToLocal(ctrlLocalPos.copy(ctrlWorldPos));
-      if (ctrlLocalPos.distanceTo(charge.position) < 0.5) near = true;
+  // ── Fading charges ─────────────────────────────────────────────────────────
+  function updateFading() {
+    const toRemove = [];
+    charges.forEach(ch => {
+      if (!ch.fading) return;
+      ch.life -= 0.018;
+      ch.mesh.position.addScaledVector(ch.velocity, 1.0);
+      ch.velocity.multiplyScalar(0.96);
+      ch.mesh.material.opacity = Math.max(0, ch.life);
+      ch.light.intensity = ch.life;
+      if (ch.life <= 0) toRemove.push(ch);
     });
-    chargeMat.emissiveIntensity = near ? 0.9 : 0.4;
+    toRemove.forEach(ch => removeCharge(ch));
   }
 
+  // ── Proximity highlight ────────────────────────────────────────────────────
+  const _ctrlWP = new THREE.Vector3();
+  function updateProximity() {
+    charges.forEach(ch => {
+      if (ch.fading || ch.grabbed) return;
+      let near = false;
+      controllers.forEach(ctrl => {
+        ctrl.getWorldPosition(_ctrlWP);
+        ch.mesh.getWorldPosition(chargeWorldPos);
+        if (_ctrlWP.distanceTo(chargeWorldPos) < GRAB_RADIUS) near = true;
+      });
+      ch.mesh.material.emissiveIntensity = near ? 0.9 : 0.5;
+    });
+  }
+
+  // ── Velocity tracking ──────────────────────────────────────────────────────
+  function updateControllerVelocities() {
+    controllers.forEach((ctrl, i) => {
+      const state = ctrlState[i];
+      ctrl.getWorldPosition(state.currPos);
+      state.vel.subVectors(state.currPos, state.prevPos);
+      state.prevPos.copy(state.currPos);
+    });
+  }
+
+  // ── Spin ───────────────────────────────────────────────────────────────────
   function updateSpin() {
     if (!spinController) return;
     spinController.getWorldPosition(spinCurrPos);
     const delta = spinCurrPos.clone().sub(spinPrevPos);
-    const sensitivity = 3.0;
-    diorama.rotation.y += delta.x * sensitivity;
-    // Fixed: negative delta.y = hand moves down = tilt down
-    diorama.rotation.x -= delta.y * sensitivity;
+    diorama.rotation.y += delta.x * 3.0;
+    diorama.rotation.x -= delta.y * 3.0;
     diorama.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, diorama.rotation.x));
     spinPrevPos.copy(spinCurrPos);
   }
 
-  // Locomotion
+  // ── Locomotion ─────────────────────────────────────────────────────────────
   const SNAP_ANGLE = Math.PI/6;
   let snapCooled = true;
   const moveDir = new THREE.Vector3(), camDir = new THREE.Vector3();
@@ -207,33 +405,32 @@
       const sx = axes[2] !== undefined ? axes[2] : axes[0];
       const sy = axes[3] !== undefined ? axes[3] : axes[1];
       if (source.handedness === 'left') {
-        if (Math.abs(sx) > 0.15 || Math.abs(sy) > 0.15) {
-          camera.getWorldDirection(camDir);
-          camDir.y = 0; camDir.normalize();
+        if (Math.abs(sx)>0.15 || Math.abs(sy)>0.15) {
+          camera.getWorldDirection(camDir); camDir.y=0; camDir.normalize();
           const right = new THREE.Vector3().crossVectors(camDir, new THREE.Vector3(0,1,0));
           moveDir.set(0,0,0).addScaledVector(camDir,-sy*0.025).addScaledVector(right,sx*0.025);
           player.position.add(moveDir);
         }
       }
       if (source.handedness === 'right') {
-        if (Math.abs(sx) > 0.5 && snapCooled) {
-          player.rotation.y -= Math.sign(sx)*SNAP_ANGLE;
-          snapCooled = false;
-        }
-        if (Math.abs(sx) < 0.2) snapCooled = true;
+        if (Math.abs(sx)>0.5 && snapCooled) { player.rotation.y -= Math.sign(sx)*SNAP_ANGLE; snapCooled=false; }
+        if (Math.abs(sx)<0.2) snapCooled=true;
       }
     }
   }
 
+  // ── Render loop ────────────────────────────────────────────────────────────
   renderer.setAnimationLoop(() => {
+    updateControllerVelocities();
     handleLocomotion();
     updateSpin();
+    updateFading();
     updateArrows();
     updateProximity();
     renderer.render(scene, camera);
   });
 
-  // VR Button
+  // ── VR Button ──────────────────────────────────────────────────────────────
   const btn = document.createElement('button');
   Object.assign(btn.style, {
     position:'absolute', bottom:'30px', left:'50%', transform:'translateX(-50%)',
@@ -248,17 +445,14 @@
     const ok = await navigator.xr.isSessionSupported('immersive-vr').catch(() => false);
     if (!ok) { btn.textContent = '⚠ VR not supported'; return; }
     const session = await navigator.xr.requestSession('immersive-vr', {
-      optionalFeatures: ['local-floor', 'bounded-floor']
+      optionalFeatures: ['local-floor','bounded-floor']
     });
     renderer.xr.setSession(session);
     btn.textContent = 'Exit VR';
     session.addEventListener('end', () => { btn.textContent = 'Enter VR'; });
   });
 
-  // Register service worker for PWA/offline support
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js');
-  }
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
 
   window.addEventListener('resize', () => {
     camera.aspect = innerWidth/innerHeight;
