@@ -180,19 +180,19 @@
     return new THREE.CanvasTexture(canvas);
   }
 
-  function makeButton(label, color, localPos) {
+  function makeButton(label, color, worldPos) {
     const tex = makeButtonTexture(label, color, false);
     const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.12), mat);
-    mesh.position.copy(localPos);
-    // Attach to camera so buttons always float in front of player
-    camera.add(mesh);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.13), mat);
+    mesh.position.copy(worldPos);
+    mesh.rotation.x = -0.3; // tilt slightly toward user
+    scene.add(mesh);
     return { mesh, mat, label, color, greyed: false };
   }
 
-  // Positioned in camera-local space: slightly right/left, below eye level, arm's length ahead
-  const btnPos = makeButton('+ POS', '#cc2222', new THREE.Vector3( 0.18, -0.25, -0.7));
-  const btnNeg = makeButton('+ NEG', '#1155cc', new THREE.Vector3(-0.18, -0.25, -0.7));
+  // Fixed below the cube, easy to reach
+  const btnPos = makeButton('+ POS', '#cc2222', new THREE.Vector3(-0.2, 0.75, -0.8));
+  const btnNeg = makeButton('+ NEG', '#1155cc', new THREE.Vector3( 0.2, 0.75, -0.8));
   const buttons = [btnPos, btnNeg];
 
   function updateButtons() {
