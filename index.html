@@ -378,6 +378,24 @@
     });
   }
 
+  // Both grips simultaneously = reset position
+  let bothGripsCooled = true;
+  function checkBothGrips() {
+    const session = renderer.xr.getSession();
+    if (!session) return;
+    let gripsPressed = 0;
+    for (const source of session.inputSources) {
+      if (!source.gamepad) continue;
+      const squeeze = source.gamepad.buttons[1];
+      if (squeeze && squeeze.pressed) gripsPressed++;
+    }
+    if (gripsPressed >= 2 && bothGripsCooled) {
+      resetDioramaPosition();
+      bothGripsCooled = false;
+    }
+    if (gripsPressed === 0) bothGripsCooled = true;
+  }
+
   function updateSpin() {
     if (!spinController) return;
     spinController.getWorldPosition(spinCurrPos);
@@ -434,10 +452,33 @@
     }
   }
 
+  // ── Position Reset ────────────────────────────────────────────────────────
+  function resetDioramaPosition() {
+    const camPos = new THREE.Vector3();
+    const camDir = new THREE.Vector3();
+    camera.getWorldPosition(camPos);
+    camera.getWorldDirection(camDir);
+    camDir.y = 0;
+    camDir.normalize();
+    // Place cube 1 meter in front, slightly below eye level
+    diorama.position.copy(camPos)
+      .addScaledVector(camDir, 1.0)
+      .add(new THREE.Vector3(0, -0.2, 0));
+    diorama.rotation.set(0, 0, 0);
+    // Buzz both controllers
+    controllers.forEach(ctrl => haptic(ctrl, 0.4, 100));
+  }
+
+  // Auto-reset when VR session starts
+  renderer.xr.addEventListener('sessionstart', () => {
+    setTimeout(resetDioramaPosition, 500); // small delay to let tracking stabilize
+  });
+
   renderer.setAnimationLoop(() => {
     updateControllerVelocities();
     handleLocomotion();
     handleSpawnButtons();
+    checkBothGrips();
     updateSpin();
     updateFading();
     updateArrows();
