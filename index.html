@@ -395,8 +395,17 @@
     if (!spinController) return;
     spinController.getWorldPosition(spinCurrPos);
     const delta = spinCurrPos.clone().sub(spinPrevPos);
-    diorama.rotation.y += delta.x * 3.0;
-    diorama.rotation.x -= delta.y * 3.0;
+
+    // Object-space quaternion rotation — feels like spinning a physical object
+    // Left/right always rotates around world Y (up axis)
+    // Up/down always rotates around the diorama's own local X axis
+    const worldUp = new THREE.Vector3(0, 1, 0);
+    const localRight = new THREE.Vector3(1, 0, 0).applyQuaternion(diorama.quaternion);
+
+    const qY = new THREE.Quaternion().setFromAxisAngle(worldUp, delta.x * 3.0);
+    const qX = new THREE.Quaternion().setFromAxisAngle(localRight, -delta.y * 3.0);
+
+    diorama.quaternion.premultiply(qY).premultiply(qX);
     spinPrevPos.copy(spinCurrPos);
   }
 
@@ -458,7 +467,7 @@
     diorama.position.copy(camPos)
       .addScaledVector(camDir, 1.0)
       .add(new THREE.Vector3(0, -0.2, 0));
-    diorama.rotation.set(0, 0, 0);
+    diorama.quaternion.identity();
     // Buzz both controllers
     controllers.forEach(ctrl => haptic(ctrl, 0.4, 100));
   }
