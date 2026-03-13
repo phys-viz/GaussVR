@@ -208,51 +208,8 @@
     });
   }
 
-  // ── Floating labels below cube ────────────────────────────────────────────
-  function makeSingleLabel(text, color) {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    // Measure text first, size canvas to fit
-    canvas.width = 2; canvas.height = 2;
-    const tmpCtx = canvas.getContext('2d');
-    tmpCtx.font = 'bold 28px sans-serif';
-    const w = Math.ceil(tmpCtx.measureText(text).width) + 24;
-    const h = 44;
-    canvas.width = w; canvas.height = h;
-    ctx.fillStyle = 'rgba(10,10,30,0.88)';
-    ctx.beginPath();
-    ctx.roundRect(0, 0, w, h, 8);
-    ctx.fill();
-    ctx.fillStyle = color;
-    ctx.font = 'bold 28px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, w/2, h/2);
-    return new THREE.CanvasTexture(canvas);
-  }
-
-  const labelAMat = new THREE.MeshBasicMaterial({ map: makeSingleLabel('A = + Charge (0/2)', '#ff6666'), transparent: true, side: THREE.DoubleSide });
-  const labelBMat = new THREE.MeshBasicMaterial({ map: makeSingleLabel('B = - Charge (0/2)', '#6699ff'), transparent: true, side: THREE.DoubleSide });
-
-  const labelA = new THREE.Mesh(new THREE.PlaneGeometry(0.38, 0.055), labelAMat);
-  labelA.position.set(0, 0.82, -0.8);
-  labelA.rotation.x = -0.2;
-  scene.add(labelA);
-
-  const labelB = new THREE.Mesh(new THREE.PlaneGeometry(0.38, 0.055), labelBMat);
-  labelB.position.set(0, 0.65, -0.8);
-  labelB.rotation.x = -0.2;
-  scene.add(labelB);
-
-  function updateButtons() {
-    const pc = countActive(1), nc = countActive(-1);
-    labelAMat.map.dispose();
-    labelAMat.map = makeSingleLabel('A = + Charge (' + pc + '/2)', pc >= MAX_POS ? '#886666' : '#ff6666');
-    labelAMat.needsUpdate = true;
-    labelBMat.map.dispose();
-    labelBMat.map = makeSingleLabel('B = - Charge (' + nc + '/2)', nc >= MAX_NEG ? '#666688' : '#6699ff');
-    labelBMat.needsUpdate = true;
-  }
+  // Labels removed — controls explained in README / onboarding
+  function updateButtons() { /* no-op — labels removed */ }
 
   // ── Controllers ────────────────────────────────────────────────────────────
   const GRAB_RADIUS = 0.5;
@@ -396,16 +353,22 @@
     spinController.getWorldPosition(spinCurrPos);
     const delta = spinCurrPos.clone().sub(spinPrevPos);
 
-    // Object-space quaternion rotation — feels like spinning a physical object
-    // Left/right always rotates around world Y (up axis)
-    // Up/down always rotates around the diorama's own local X axis
-    const worldUp = new THREE.Vector3(0, 1, 0);
-    const localRight = new THREE.Vector3(1, 0, 0).applyQuaternion(diorama.quaternion);
-
-    const qY = new THREE.Quaternion().setFromAxisAngle(worldUp, delta.x * 3.0);
-    const qX = new THREE.Quaternion().setFromAxisAngle(localRight, -delta.y * 3.0);
-
-    diorama.quaternion.premultiply(qY).premultiply(qX);
+    // Trackball rotation — axis is perpendicular to the swipe in camera space
+    // This feels like rolling a physical ball with your hand
+    const swipeMag = Math.sqrt(delta.x * delta.x + delta.y * delta.y);
+    if (swipeMag > 0.0001) {
+      // Get camera's right and up vectors in world space
+      const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+      const camUp    = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+      // Rotation axis = perpendicular to swipe direction in camera plane
+      const axis = new THREE.Vector3()
+        .addScaledVector(camUp,    delta.x)   // swipe right → rotate around up
+        .addScaledVector(camRight, -delta.y)  // swipe up → rotate around right
+        .normalize();
+      const angle = swipeMag * 3.0;
+      const q = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+      diorama.quaternion.premultiply(q);
+    }
     spinPrevPos.copy(spinCurrPos);
   }
 
