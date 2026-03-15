@@ -105,16 +105,22 @@
 
   function makeChargeLabel(type, magnitude) {
     const canvas = document.createElement('canvas');
-    canvas.width = 128; canvas.height = 128;
+    canvas.width = 180; canvas.height = 80;
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, 128, 128);
-    const text = (type > 0 ? '+' : '−') + magnitude;
-    const color = type > 0 ? '#ff6666' : '#6699ff';
-    ctx.fillStyle = color;
-    ctx.font = 'bold 72px sans-serif';
+    ctx.clearRect(0, 0, 180, 80);
+    const text = (type > 0 ? '+' : '−') + magnitude + 'q';
+    const bgColor = type > 0 ? '#cc2222' : '#2255cc';
+    // Background pill
+    ctx.fillStyle = bgColor;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, 180, 80, 20);
+    ctx.fill();
+    // White text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 52px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, 64, 64);
+    ctx.fillText(text, 90, 42);
     return new THREE.CanvasTexture(canvas);
   }
 
@@ -129,7 +135,7 @@
     diorama.add(mesh);
     // Charge label
     const labelMat = new THREE.MeshBasicMaterial({ map: makeChargeLabel(type, 1), transparent: true, depthTest: false, side: THREE.DoubleSide });
-    const labelMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.10, 0.10), labelMat);
+    const labelMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.06), labelMat);
     mesh.add(labelMesh);
     const light = new THREE.PointLight(type > 0 ? 0xff4444 : 0x4488ff, 1.0, 2.5);
     diorama.add(light);
