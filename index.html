@@ -373,42 +373,69 @@
   }
 
   // ── Swipe magnitude gesture ───────────────────────────────────────────────
-  const SWIPE_THRESHOLD = 0.022;
-  const SWIPE_PROX = 0.28;
+  const SWIPE_THRESHOLD = 0.020;
+  const SWIPE_PROX = 0.32;
   let swipeCooled = true;
+  const _swipePrevPos = new THREE.Vector3();
+  const _swipeCurrPos = new THREE.Vector3();
+  const _swipeVel = new THREE.Vector3();
+  let _swipeInitialized = false;
 
   function checkSwipeGesture() {
     const session = renderer.xr.getSession();
     if (!session) return;
+    // Find right controller
+    let rightCtrl = null;
     for (const source of session.inputSources) {
-      if (!source.gamepad || source.handedness !== 'right') continue;
-      const idx = source.handedness === 'left' ? 0 : 1;
-      const state = ctrlState[idx];
-      const ctrl = controllers[idx];
-      if (!ctrl) continue;
-      const vy = state.vel.y;
-      if (Math.abs(vy) < SWIPE_THRESHOLD) { swipeCooled = true; continue; }
-      if (!swipeCooled) continue;
-      ctrl.getWorldPosition(_ctrlWP);
-      charges.forEach(ch => {
-        if (ch.fading || ch.grabbed) return;
-        ch.mesh.getWorldPosition(chargeWorldPos);
-        if (_ctrlWP.distanceTo(chargeWorldPos) > SWIPE_PROX) return;
-        if (vy > SWIPE_THRESHOLD && ch.magnitude < 2) {
-          ch.magnitude = 2;
-          updateChargeMagnitude(ch);
-          haptic(ctrl, 0.5, 80);
-          playPop(660, 0.15);
-          swipeCooled = false;
-        } else if (vy < -SWIPE_THRESHOLD && ch.magnitude > 1) {
-          ch.magnitude = 1;
-          updateChargeMagnitude(ch);
-          haptic(ctrl, 0.3, 60);
-          playPop(330, 0.15);
-          swipeCooled = false;
+      if (source.handedness === 'right') {
+        const idx = source.handedness === 'left' ? 0 : 1;
+        // Use getController matched by handedness via inputSources order
+        for (let i = 0; i < controllers.length; i++) {
+          rightCtrl = controllers[i];
         }
-      });
+        // Get position directly from the xr controller that matches right hand
+        for (let i = 0; i < session.inputSources.length; i++) {
+          if (session.inputSources[i] === source) {
+            rightCtrl = renderer.xr.getController(i);
+          }
+        }
+        break;
+      }
     }
+    if (!rightCtrl) return;
+
+    rightCtrl.getWorldPosition(_swipeCurrPos);
+    if (!_swipeInitialized) {
+      _swipePrevPos.copy(_swipeCurrPos);
+      _swipeInitialized = true;
+      return;
+    }
+    _swipeVel.subVectors(_swipeCurrPos, _swipePrevPos);
+    _swipePrevPos.copy(_swipeCurrPos);
+
+    const vy = _swipeVel.y;
+    if (Math.abs(vy) < SWIPE_THRESHOLD) { swipeCooled = true; return; }
+    if (!swipeCooled) return;
+
+    rightCtrl.getWorldPosition(_ctrlWP);
+    charges.forEach(ch => {
+      if (ch.fading || ch.grabbed) return;
+      ch.mesh.getWorldPosition(chargeWorldPos);
+      if (_ctrlWP.distanceTo(chargeWorldPos) > SWIPE_PROX) return;
+      if (vy > SWIPE_THRESHOLD && ch.magnitude < 2) {
+        ch.magnitude = 2;
+        updateChargeMagnitude(ch);
+        haptic(rightCtrl, 0.5, 80);
+        playPop(660, 0.15);
+        swipeCooled = false;
+      } else if (vy < -SWIPE_THRESHOLD && ch.magnitude > 1) {
+        ch.magnitude = 1;
+        updateChargeMagnitude(ch);
+        haptic(rightCtrl, 0.3, 60);
+        playPop(330, 0.15);
+        swipeCooled = false;
+      }
+    });
   }
 
   function updateControllerVelocities() {
@@ -671,13 +698,12 @@
     ctx.font = 'bold 24px sans-serif';
     ctx.fillText('SNAP  ' + (snapMode ? '● ON' : '○ OFF'), PCV_W/2, 122);
 
-    // Size info row — swipe gesture instructions
+    // Size info row
     ctx.fillStyle = '#1e2e3e';
     rr(ctx, 14, 170, PCV_W-28, 68, 10, true, false);
     ctx.fillStyle = selectedCharge ? '#aaccff' : '#556677';
-    ctx.font = 'bold 20px sans-serif';
-    const sizeLabel = selectedCharge ? 'SIZE: ' + (selectedCharge.magnitude === 2 ? '2×' : '1×') + '  (swipe ↑↓ to change)' : 'swipe ↑ = 2×   swipe ↓ = 1×';
-    ctx.fillText(sizeLabel, PCV_W/2, 204);
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillText(selectedCharge ? 'SIZE: ' + (selectedCharge.magnitude === 2 ? '2×' : '1×') : 'SIZE: —', PCV_W/2, 204);
 
     // Reset button
     ctx.fillStyle = '#18102a';
@@ -686,10 +712,6 @@
     rr(ctx, 14, 252, PCV_W-28, 68, 10, false, true);
     ctx.fillStyle = '#aa77ff'; ctx.font = 'bold 20px sans-serif';
     ctx.fillText('⟳  RESET POSITION', PCV_W/2, 286);
-
-    // Hint
-    ctx.fillStyle = '#445566'; ctx.font = '16px sans-serif';
-    ctx.fillText(selectedCharge ? 'charge selected' : 'point ray at charge to select', PCV_W/2, 348);
 
     panelTex.needsUpdate = true;
   }
