@@ -293,7 +293,8 @@
       const ch = state.grabbing;
       state.grabbing = null;
       ch.grabbed = false;
-      ch.mesh.material.emissiveIntensity = 0.5;
+      ch.snapped = false;
+      ch.mesh.material.emissiveIntensity = selectedCharge === ch ? 1.2 : 0.5;
       if (state.vel.length() > THROW_THRESHOLD) {
         scene.attach(ch.mesh);
         scene.add(ch.light);
@@ -305,7 +306,25 @@
         haptic(ctrl, 1.0, 150);
         playWhoosh();
       } else {
-        diorama.attach(ch.mesh);
+        // Snap on release if snap mode on and near a snap point
+        if (snapMode) {
+          ch.mesh.getWorldPosition(chargeWorldPos);
+          const localPos = diorama.worldToLocal(chargeWorldPos.clone());
+          let closestDist = SNAP_RADIUS, closestPoint = null;
+          snapPoints.forEach(sp => {
+            const d = localPos.distanceTo(sp);
+            if (d < closestDist) { closestDist = d; closestPoint = sp; }
+          });
+          if (closestPoint) {
+            diorama.attach(ch.mesh);
+            ch.mesh.position.copy(closestPoint);
+            haptic(ctrl, 0.4, 80);
+          } else {
+            diorama.attach(ch.mesh);
+          }
+        } else {
+          diorama.attach(ch.mesh);
+        }
       }
     });
 
@@ -408,12 +427,35 @@
     for (const source of session.inputSources) {
       if (!source.gamepad || source.handedness !== 'right') continue;
       const btns = source.gamepad.buttons;
-      // Quest 2: button[4] = A, button[5] = B
       const aPressed = btns[4] && btns[4].pressed;
       const bPressed = btns[5] && btns[5].pressed;
-      if (aPressed && aCooled) { spawnCharge(1);  aCooled = false; }
+      if (aPressed && aCooled) { spawnCharge(1); aCooled = false; }
       if (!aPressed) aCooled = true;
-      if (bPressed && bCooled) { spawnCharge(-1); bCooled = false; }
+      if (bPressed && bCooled) {
+        // B button: select charge if ray hits one, otherwise spawn negative
+        const ctrl = controllers[1]; // right controller
+        ctrl.getWorldPosition(_panelRayOrigin);
+        const wq = new THREE.Quaternion();
+        ctrl.getWorldQuaternion(wq);
+        _panelRayDir.set(0, 0, -1).applyQuaternion(wq);
+        _panelRaycaster.set(_panelRayOrigin, _panelRayDir);
+        const meshes = charges.filter(c => !c.fading).map(c => c.mesh);
+        const hits = _panelRaycaster.intersectObjects(meshes);
+        if (hits.length > 0) {
+          // Select the charge
+          const ch = charges.find(c => c.mesh === hits[0].object);
+          if (ch) {
+            if (selectedCharge) selectedCharge.mesh.material.emissiveIntensity = 0.5;
+            selectedCharge = ch;
+            ch.mesh.material.emissiveIntensity = 1.2;
+            haptic(ctrl, 0.3, 60);
+            drawPanel();
+          }
+        } else {
+          spawnCharge(-1);
+        }
+        bCooled = false;
+      }
       if (!bPressed) bCooled = true;
     }
   }
@@ -674,10 +716,8 @@
     handleLocomotion();
     handleSpawnButtons();
     checkBothGrips();
-    checkThumbClick();
     updateSpin();
     updateFading();
-    checkSnap();
     updateSnapDots();
     updateArrows();
     updateProximity();
