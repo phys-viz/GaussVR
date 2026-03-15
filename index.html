@@ -429,33 +429,9 @@
       const btns = source.gamepad.buttons;
       const aPressed = btns[4] && btns[4].pressed;
       const bPressed = btns[5] && btns[5].pressed;
-      if (aPressed && aCooled) { spawnCharge(1); aCooled = false; }
+      if (aPressed && aCooled) { spawnCharge(1);  aCooled = false; }
       if (!aPressed) aCooled = true;
-      if (bPressed && bCooled) {
-        // B button: select charge if ray hits one, otherwise spawn negative
-        const ctrl = controllers[1]; // right controller
-        ctrl.getWorldPosition(_panelRayOrigin);
-        const wq = new THREE.Quaternion();
-        ctrl.getWorldQuaternion(wq);
-        _panelRayDir.set(0, 0, -1).applyQuaternion(wq);
-        _panelRaycaster.set(_panelRayOrigin, _panelRayDir);
-        const meshes = charges.filter(c => !c.fading).map(c => c.mesh);
-        const hits = _panelRaycaster.intersectObjects(meshes);
-        if (hits.length > 0) {
-          // Select the charge
-          const ch = charges.find(c => c.mesh === hits[0].object);
-          if (ch) {
-            if (selectedCharge) selectedCharge.mesh.material.emissiveIntensity = 0.5;
-            selectedCharge = ch;
-            ch.mesh.material.emissiveIntensity = 1.2;
-            haptic(ctrl, 0.3, 60);
-            drawPanel();
-          }
-        } else {
-          spawnCharge(-1);
-        }
-        bCooled = false;
-      }
+      if (bPressed && bCooled) { spawnCharge(-1); bCooled = false; }
       if (!bPressed) bCooled = true;
     }
   }
@@ -516,17 +492,25 @@
   // ── Snap system ───────────────────────────────────────────────────────────
   let snapMode = false;
   const _h = CUBE_SIZE / 2;
+  const _out = 1.2; // outside snap distance from center
   const snapPoints = [
+    // Center
     new THREE.Vector3(0,0,0),
+    // Corners (inside)
     new THREE.Vector3(-_h,-_h,-_h), new THREE.Vector3(-_h,-_h, _h),
     new THREE.Vector3(-_h, _h,-_h), new THREE.Vector3(-_h, _h, _h),
     new THREE.Vector3( _h,-_h,-_h), new THREE.Vector3( _h,-_h, _h),
     new THREE.Vector3( _h, _h,-_h), new THREE.Vector3( _h, _h, _h),
+    // Face centers (inside)
     new THREE.Vector3(-_h, 0, 0),   new THREE.Vector3( _h, 0, 0),
     new THREE.Vector3( 0,-_h, 0),   new THREE.Vector3( 0, _h, 0),
     new THREE.Vector3( 0, 0,-_h),   new THREE.Vector3( 0, 0, _h),
+    // Outside face centers
+    new THREE.Vector3(-_out, 0, 0), new THREE.Vector3( _out, 0, 0),
+    new THREE.Vector3( 0,-_out, 0), new THREE.Vector3( 0, _out, 0),
+    new THREE.Vector3( 0, 0,-_out), new THREE.Vector3( 0, 0, _out),
   ];
-  const SNAP_RADIUS = 0.1;
+  const SNAP_RADIUS = 0.12;
   const snapDotMat = new THREE.MeshBasicMaterial({ color: 0xffdd00, transparent: true, opacity: 0.5 });
   const snapDots = snapPoints.map(p => {
     const dot = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), snapDotMat);
@@ -558,43 +542,40 @@
     });
   }
 
-  // ── Charge selection ──────────────────────────────────────────────────────
+  // ── Passive ray selection ─────────────────────────────────────────────────
   let selectedCharge = null;
-  const thumbClickPrev = [false, false];
+  const _raySelOrigin = new THREE.Vector3();
+  const _raySelDir = new THREE.Vector3();
+  const _raySelCaster = new THREE.Raycaster();
+  _raySelCaster.params.Line = { threshold: 0.05 };
 
-  function checkThumbClick() {
+  function updateRaySelection() {
     const session = renderer.xr.getSession();
     if (!session) return;
-    for (const source of session.inputSources) {
-      if (!source.gamepad) continue;
-      const idx = source.handedness === 'left' ? 0 : 1;
-      const btn = source.gamepad.buttons[3];
-      const pressed = btn && btn.pressed;
-      if (pressed && !thumbClickPrev[idx]) {
-        // Cast ray from this controller toward charges
-        const ctrl = controllers[idx];
-        ctrl.getWorldPosition(_panelRayOrigin);
-        const wq = new THREE.Quaternion();
-        ctrl.getWorldQuaternion(wq);
-        _panelRayDir.set(0, 0, -1).applyQuaternion(wq);
-        _panelRaycaster.set(_panelRayOrigin, _panelRayDir);
-        const meshes = charges.filter(c => !c.fading).map(c => c.mesh);
-        const hits = _panelRaycaster.intersectObjects(meshes);
-        if (hits.length > 0) {
-          const ch = charges.find(c => c.mesh === hits[0].object);
-          if (ch) {
-            if (selectedCharge) selectedCharge.mesh.material.emissiveIntensity = 0.5;
-            selectedCharge = ch;
-            ch.mesh.material.emissiveIntensity = 1.2;
-            haptic(ctrl, 0.3, 60);
-            drawPanel();
-          }
-        } else {
-          // Deselect
-          if (selectedCharge) { selectedCharge.mesh.material.emissiveIntensity = 0.5; selectedCharge = null; drawPanel(); }
-        }
+    // Use right controller (index 1)
+    const ctrl = controllers[1];
+    if (!ctrl) return;
+    ctrl.getWorldPosition(_raySelOrigin);
+    const wq = new THREE.Quaternion();
+    ctrl.getWorldQuaternion(wq);
+    _raySelDir.set(0, 0, -1).applyQuaternion(wq);
+    _raySelCaster.set(_raySelOrigin, _raySelDir);
+    const meshes = charges.filter(c => !c.fading && !c.grabbed).map(c => c.mesh);
+    const hits = _raySelCaster.intersectObjects(meshes);
+    if (hits.length > 0) {
+      const ch = charges.find(c => c.mesh === hits[0].object);
+      if (ch && ch !== selectedCharge) {
+        if (selectedCharge) selectedCharge.mesh.material.emissiveIntensity = 0.5;
+        selectedCharge = ch;
+        ch.mesh.material.emissiveIntensity = 1.2;
+        drawPanel();
       }
-      thumbClickPrev[idx] = pressed;
+    } else {
+      if (selectedCharge && !selectedCharge.grabbed) {
+        selectedCharge.mesh.material.emissiveIntensity = 0.5;
+        selectedCharge = null;
+        drawPanel();
+      }
     }
   }
 
@@ -721,6 +702,7 @@
     updateSnapDots();
     updateArrows();
     updateProximity();
+    updateRaySelection();
     updatePanel();
     renderer.render(scene, camera);
   });
