@@ -363,7 +363,51 @@
         ch.mesh.getWorldPosition(chargeWorldPos);
         if (_ctrlWP.distanceTo(chargeWorldPos) < GRAB_RADIUS) near = true;
       });
-      ch.mesh.material.emissiveIntensity = near ? 0.9 : 0.5;
+      ch.mesh.material.emissiveIntensity = near ? 0.9 : (ch.magnitude === 2 ? 1.0 : 0.5);
+    });
+  }
+
+  function updateChargeMagnitude(ch) {
+    const r = ch.magnitude === 2 ? 0.13 : 0.09;
+    ch.mesh.geometry.dispose();
+    ch.mesh.geometry = new THREE.SphereGeometry(r, 32, 32);
+    ch.mesh.material.emissiveIntensity = ch.magnitude === 2 ? 1.0 : 0.5;
+    ch.light.intensity = ch.magnitude === 2 ? 1.8 : 1.0;
+    drawPanel();
+  }
+
+  // ── Swipe magnitude gesture ───────────────────────────────────────────────
+  const SWIPE_THRESHOLD = 0.028; // fast deliberate swipe
+  const SWIPE_PROX = 0.18;       // must be this close to charge
+  const swipeCooldown = [false, false];
+
+  function checkSwipeGesture() {
+    // Right controller only (index 1)
+    const state = ctrlState[1];
+    const ctrl = controllers[1];
+    if (!ctrl) return;
+    const vy = state.vel.y;
+    if (Math.abs(vy) < SWIPE_THRESHOLD) { swipeCooldown[1] = false; return; }
+    if (swipeCooldown[1]) return;
+    // Check proximity to any non-grabbed charge
+    ctrl.getWorldPosition(_ctrlWP);
+    charges.forEach(ch => {
+      if (ch.fading || ch.grabbed) return;
+      ch.mesh.getWorldPosition(chargeWorldPos);
+      if (_ctrlWP.distanceTo(chargeWorldPos) > SWIPE_PROX) return;
+      if (vy > SWIPE_THRESHOLD && ch.magnitude < 2) {
+        ch.magnitude = 2;
+        updateChargeMagnitude(ch);
+        haptic(ctrl, 0.5, 80);
+        playPop(660, 0.15);
+        swipeCooldown[1] = true;
+      } else if (vy < -SWIPE_THRESHOLD && ch.magnitude > 1) {
+        ch.magnitude = 1;
+        updateChargeMagnitude(ch);
+        haptic(ctrl, 0.3, 60);
+        playPop(330, 0.15);
+        swipeCooldown[1] = true;
+      }
     });
   }
 
@@ -511,11 +555,21 @@
     new THREE.Vector3( 0, 0,-_out), new THREE.Vector3( 0, 0, _out),
   ];
   const SNAP_RADIUS = 0.18;
-  const snapDotMat = new THREE.MeshBasicMaterial({ color: 0xffdd00, transparent: true, opacity: 0.5 });
+  const snapDotMat = new THREE.MeshBasicMaterial({ color: 0xffdd00, transparent: true, opacity: 0.7 });
+
+  function makeSnapPlus() {
+    const group = new THREE.Group();
+    const bar1 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.008, 0.008), snapDotMat);
+    const bar2 = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.06, 0.008), snapDotMat);
+    const bar3 = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.008, 0.06), snapDotMat);
+    group.add(bar1); group.add(bar2); group.add(bar3);
+    return group;
+  }
+
   const snapDots = snapPoints.map(p => {
-    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), snapDotMat);
-    dot.position.copy(p); dot.visible = false;
-    diorama.add(dot); return dot;
+    const plus = makeSnapPlus();
+    plus.position.copy(p); plus.visible = false;
+    diorama.add(plus); return plus;
   });
 
   function updateSnapDots() {
@@ -692,6 +746,7 @@
     handleLocomotion();
     handleSpawnButtons();
     checkBothGrips();
+    checkSwipeGesture();
     updateSpin();
     updateFading();
     updateSnapDots();
