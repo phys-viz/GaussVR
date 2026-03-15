@@ -510,7 +510,7 @@
     new THREE.Vector3( 0,-_out, 0), new THREE.Vector3( 0, _out, 0),
     new THREE.Vector3( 0, 0,-_out), new THREE.Vector3( 0, 0, _out),
   ];
-  const SNAP_RADIUS = 0.12;
+  const SNAP_RADIUS = 0.18;
   const snapDotMat = new THREE.MeshBasicMaterial({ color: 0xffdd00, transparent: true, opacity: 0.5 });
   const snapDots = snapPoints.map(p => {
     const dot = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), snapDotMat);
@@ -519,8 +519,7 @@
   });
 
   function updateSnapDots() {
-    const anyGrabbed = charges.some(c => c.grabbed);
-    snapDots.forEach(d => { d.visible = snapMode && anyGrabbed; });
+    snapDots.forEach(d => { d.visible = snapMode; });
   }
 
   function checkSnap() {
@@ -552,7 +551,6 @@
   function updateRaySelection() {
     const session = renderer.xr.getSession();
     if (!session) return;
-    // Use right controller (index 1)
     const ctrl = controllers[1];
     if (!ctrl) return;
     ctrl.getWorldPosition(_raySelOrigin);
@@ -565,18 +563,15 @@
     if (hits.length > 0) {
       const ch = charges.find(c => c.mesh === hits[0].object);
       if (ch && ch !== selectedCharge) {
+        // New charge hit — switch selection
         if (selectedCharge) selectedCharge.mesh.material.emissiveIntensity = 0.5;
         selectedCharge = ch;
         ch.mesh.material.emissiveIntensity = 1.2;
         drawPanel();
       }
-    } else {
-      if (selectedCharge && !selectedCharge.grabbed) {
-        selectedCharge.mesh.material.emissiveIntensity = 0.5;
-        selectedCharge = null;
-        drawPanel();
-      }
+      // If same charge hit, do nothing — keeps selection stable
     }
+    // No hit — keep current selection (sticky)
   }
 
   // ── Floating control panel ────────────────────────────────────────────────
@@ -647,7 +642,7 @@
 
     // Hint
     ctx.fillStyle = '#445566'; ctx.font = '16px sans-serif';
-    ctx.fillText(selectedCharge ? 'charge selected' : 'thumbstick click → select charge', PCV_W/2, 348);
+    ctx.fillText(selectedCharge ? 'charge selected' : 'point ray at charge to select', PCV_W/2, 348);
 
     panelTex.needsUpdate = true;
   }
