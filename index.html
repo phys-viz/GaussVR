@@ -114,7 +114,7 @@
     diorama.add(mesh);
     const light = new THREE.PointLight(type > 0 ? 0xff4444 : 0x4488ff, 1.0, 2.5);
     diorama.add(light);
-    charges.push({ mesh, light, type, fading: false, velocity: new THREE.Vector3(), life: 1.0, grabbed: false });
+    charges.push({ mesh, light, type, magnitude: 1, fading: false, velocity: new THREE.Vector3(), life: 1.0, grabbed: false, snapped: false });
     updateButtons();
     // Sound: high pop for positive, low pop for negative
     playPop(type > 0 ? 880 : 220, 0.25);
@@ -166,7 +166,7 @@
   function updateArrows() {
     const activeSources = charges.filter(c => !c.fading).map(c => {
       c.mesh.getWorldPosition(chargeWorldPos);
-      return { pos: diorama.worldToLocal(chargeWorldPos.clone()), type: c.type };
+      return { pos: diorama.worldToLocal(chargeWorldPos.clone()), type: c.type, magnitude: c.magnitude };
     });
 
     charges.forEach(c => {
@@ -186,11 +186,11 @@
 
       // Superposition
       const efield = new THREE.Vector3();
-      activeSources.forEach(({ pos, type }) => {
+      activeSources.forEach(({ pos, type, magnitude }) => {
         const r = localPos.clone().sub(pos);
         const dist = r.length();
         if (dist < 0.01) return;
-        efield.add(r.normalize().multiplyScalar(type / (dist * dist)));
+        efield.add(r.normalize().multiplyScalar(type * magnitude / (dist * dist)));
       });
 
       const magnitude = efield.length();
@@ -240,6 +240,28 @@
     ctrl.add(ray);
 
     ctrl.addEventListener('selectstart', () => {
+      // Check panel interaction first
+      const hit = getPanelIntersect(ctrl);
+      if (hit) {
+        const action = getPanelAction(hit.uv);
+        if (action === 'drag') {
+          panelDragging = true; panelDragCtrl = ctrl;
+          ctrl.getWorldPosition(_panelTmp);
+          panelDragOffset.copy(panelMesh.position).sub(_panelTmp);
+        } else if (action === 'snap') {
+          snapMode = !snapMode;
+          if (!snapMode) snapDots.forEach(d => { d.visible = false; });
+          drawPanel();
+        } else if (action === 'minus') {
+          if (selectedCharge && selectedCharge.magnitude > 1) { selectedCharge.magnitude = 1; drawPanel(); }
+        } else if (action === 'plus') {
+          if (selectedCharge && selectedCharge.magnitude < 2) { selectedCharge.magnitude = 2; drawPanel(); }
+        } else if (action === 'reset') {
+          resetDioramaPosition();
+        }
+        return;
+      }
+
       if (state.grabbing) return;
       ctrl.getWorldPosition(state.currPos);
 
@@ -262,6 +284,11 @@
     });
 
     ctrl.addEventListener('selectend', () => {
+      // Stop panel drag
+      if (panelDragging && panelDragCtrl === ctrl) {
+        panelDragging = false; panelDragCtrl = null;
+        return;
+      }
       if (!state.grabbing) return;
       const ch = state.grabbing;
       state.grabbing = null;
@@ -431,6 +458,10 @@
       .addScaledVector(camDir, 1.0)
       .add(new THREE.Vector3(0, -0.2, 0));
     diorama.quaternion.identity();
+    // Move panel to right of cube
+    panelMesh.position.copy(camPos)
+      .addScaledVector(camDir, 1.0)
+      .add(new THREE.Vector3(0.4, -0.1, 0));
     // Buzz both controllers
     controllers.forEach(ctrl => haptic(ctrl, 0.4, 100));
   }
@@ -440,15 +471,217 @@
     setTimeout(resetDioramaPosition, 500); // small delay to let tracking stabilize
   });
 
+  // ── Snap system ───────────────────────────────────────────────────────────
+  let snapMode = false;
+  const _h = CUBE_SIZE / 2;
+  const snapPoints = [
+    new THREE.Vector3(0,0,0),
+    new THREE.Vector3(-_h,-_h,-_h), new THREE.Vector3(-_h,-_h, _h),
+    new THREE.Vector3(-_h, _h,-_h), new THREE.Vector3(-_h, _h, _h),
+    new THREE.Vector3( _h,-_h,-_h), new THREE.Vector3( _h,-_h, _h),
+    new THREE.Vector3( _h, _h,-_h), new THREE.Vector3( _h, _h, _h),
+    new THREE.Vector3(-_h, 0, 0),   new THREE.Vector3( _h, 0, 0),
+    new THREE.Vector3( 0,-_h, 0),   new THREE.Vector3( 0, _h, 0),
+    new THREE.Vector3( 0, 0,-_h),   new THREE.Vector3( 0, 0, _h),
+  ];
+  const SNAP_RADIUS = 0.1;
+  const snapDotMat = new THREE.MeshBasicMaterial({ color: 0xffdd00, transparent: true, opacity: 0.5 });
+  const snapDots = snapPoints.map(p => {
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), snapDotMat);
+    dot.position.copy(p); dot.visible = false;
+    diorama.add(dot); return dot;
+  });
+
+  function updateSnapDots() {
+    const anyGrabbed = charges.some(c => c.grabbed);
+    snapDots.forEach(d => { d.visible = snapMode && anyGrabbed; });
+  }
+
+  function checkSnap() {
+    if (!snapMode) return;
+    charges.forEach(ch => {
+      if (!ch.grabbed) return;
+      ch.mesh.getWorldPosition(chargeWorldPos);
+      const localPos = diorama.worldToLocal(chargeWorldPos.clone());
+      let closestDist = SNAP_RADIUS, closestPoint = null;
+      snapPoints.forEach(sp => {
+        const d = localPos.distanceTo(sp);
+        if (d < closestDist) { closestDist = d; closestPoint = sp; }
+      });
+      if (closestPoint) {
+        if (ch.mesh.parent !== diorama) diorama.attach(ch.mesh);
+        ch.mesh.position.copy(closestPoint);
+        if (!ch.snapped) { haptic(controllers[0], 0.3, 50); haptic(controllers[1], 0.3, 50); ch.snapped = true; }
+      } else { ch.snapped = false; }
+    });
+  }
+
+  // ── Charge selection ──────────────────────────────────────────────────────
+  let selectedCharge = null;
+  const thumbClickPrev = [false, false];
+
+  function checkThumbClick() {
+    const session = renderer.xr.getSession();
+    if (!session) return;
+    for (const source of session.inputSources) {
+      if (!source.gamepad) continue;
+      const idx = source.handedness === 'left' ? 0 : 1;
+      const btn = source.gamepad.buttons[3];
+      const pressed = btn && btn.pressed;
+      if (pressed && !thumbClickPrev[idx]) {
+        // Cast ray from this controller toward charges
+        const ctrl = controllers[idx];
+        ctrl.getWorldPosition(_panelRayOrigin);
+        const wq = new THREE.Quaternion();
+        ctrl.getWorldQuaternion(wq);
+        _panelRayDir.set(0, 0, -1).applyQuaternion(wq);
+        _panelRaycaster.set(_panelRayOrigin, _panelRayDir);
+        const meshes = charges.filter(c => !c.fading).map(c => c.mesh);
+        const hits = _panelRaycaster.intersectObjects(meshes);
+        if (hits.length > 0) {
+          const ch = charges.find(c => c.mesh === hits[0].object);
+          if (ch) {
+            if (selectedCharge) selectedCharge.mesh.material.emissiveIntensity = 0.5;
+            selectedCharge = ch;
+            ch.mesh.material.emissiveIntensity = 1.2;
+            haptic(ctrl, 0.3, 60);
+            drawPanel();
+          }
+        } else {
+          // Deselect
+          if (selectedCharge) { selectedCharge.mesh.material.emissiveIntensity = 0.5; selectedCharge = null; drawPanel(); }
+        }
+      }
+      thumbClickPrev[idx] = pressed;
+    }
+  }
+
+  // ── Floating control panel ────────────────────────────────────────────────
+  const PANEL_W = 0.30, PANEL_H = 0.20;
+  const PCV_W = 600, PCV_H = 400;
+  const panelCanvas = document.createElement('canvas');
+  panelCanvas.width = PCV_W; panelCanvas.height = PCV_H;
+  const panelCtx = panelCanvas.getContext('2d');
+  const panelTex = new THREE.CanvasTexture(panelCanvas);
+  const panelMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(PANEL_W, PANEL_H),
+    new THREE.MeshBasicMaterial({ map: panelTex, transparent: true, side: THREE.DoubleSide })
+  );
+  panelMesh.position.set(0.55, 1.4, -0.8);
+  scene.add(panelMesh);
+
+  function rr(ctx, x, y, w, h, r, fill, stroke) {
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, r);
+    if (fill) ctx.fill(); if (stroke) ctx.stroke();
+  }
+
+  function drawPanel() {
+    const ctx = panelCtx;
+    ctx.clearRect(0, 0, PCV_W, PCV_H);
+    ctx.fillStyle = 'rgba(8,12,28,0.96)';
+    rr(ctx, 0, 0, PCV_W, PCV_H, 18, true, false);
+    ctx.strokeStyle = '#4fc3f7'; ctx.lineWidth = 4;
+    rr(ctx, 2, 2, PCV_W-4, PCV_H-4, 16, false, true);
+
+    // Title / drag handle
+    ctx.fillStyle = '#0d2035';
+    rr(ctx, 6, 6, PCV_W-12, 70, [14,14,0,0], true, false);
+    ctx.fillStyle = '#4fc3f7'; ctx.font = 'bold 26px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('⚙ Controls  ⠿', PCV_W/2, 42);
+
+    // Snap button
+    ctx.fillStyle = snapMode ? '#005522' : '#1a2a3a';
+    rr(ctx, 14, 88, PCV_W-28, 68, 10, true, false);
+    ctx.strokeStyle = snapMode ? '#00ee77' : '#336688'; ctx.lineWidth = 2;
+    rr(ctx, 14, 88, PCV_W-28, 68, 10, false, true);
+    ctx.fillStyle = snapMode ? '#00ee77' : '#7799aa';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText('SNAP  ' + (snapMode ? '● ON' : '○ OFF'), PCV_W/2, 122);
+
+    // Size row
+    const sizeTxt = selectedCharge ? (selectedCharge.magnitude === 2 ? '2×' : '1×') : '—';
+    ctx.fillStyle = '#1e2e3e';
+    rr(ctx, 14, 170, PCV_W-28, 68, 10, true, false);
+    ctx.fillStyle = '#8899aa'; ctx.font = 'bold 22px sans-serif';
+    ctx.fillText('SIZE: ' + sizeTxt, PCV_W/2, 204);
+    ctx.fillStyle = '#441122';
+    rr(ctx, 22, 175, 72, 58, 8, true, false);
+    ctx.fillStyle = '#ff6688'; ctx.font = 'bold 36px sans-serif';
+    ctx.fillText('−', 58, 206);
+    ctx.fillStyle = '#113322';
+    rr(ctx, PCV_W-94, 175, 72, 58, 8, true, false);
+    ctx.fillStyle = '#66ff99';
+    ctx.fillText('+', PCV_W-58, 206);
+
+    // Reset button
+    ctx.fillStyle = '#18102a';
+    rr(ctx, 14, 252, PCV_W-28, 68, 10, true, false);
+    ctx.strokeStyle = '#9966ff'; ctx.lineWidth = 2;
+    rr(ctx, 14, 252, PCV_W-28, 68, 10, false, true);
+    ctx.fillStyle = '#aa77ff'; ctx.font = 'bold 20px sans-serif';
+    ctx.fillText('⟳  RESET POSITION', PCV_W/2, 286);
+
+    // Hint
+    ctx.fillStyle = '#445566'; ctx.font = '16px sans-serif';
+    ctx.fillText(selectedCharge ? 'charge selected' : 'thumbstick click → select charge', PCV_W/2, 348);
+
+    panelTex.needsUpdate = true;
+  }
+  drawPanel();
+
+  function getPanelAction(uv) {
+    const cx = uv.x * PCV_W, cy = (1 - uv.y) * PCV_H;
+    if (cy >= 6  && cy <= 76  && cx >= 6   && cx <= PCV_W-6)   return 'drag';
+    if (cy >= 88 && cy <= 156 && cx >= 14  && cx <= PCV_W-14)  return 'snap';
+    if (cy >= 175&& cy <= 233 && cx >= 22  && cx <= 94)         return 'minus';
+    if (cy >= 175&& cy <= 233 && cx >= PCV_W-94 && cx <= PCV_W-22) return 'plus';
+    if (cy >= 252&& cy <= 320 && cx >= 14  && cx <= PCV_W-14)  return 'reset';
+    return null;
+  }
+
+  let panelDragging = false, panelDragCtrl = null;
+  const panelDragOffset = new THREE.Vector3();
+  const _panelRayOrigin = new THREE.Vector3();
+  const _panelRayDir = new THREE.Vector3();
+  const _panelRaycaster = new THREE.Raycaster();
+  const _panelTmp = new THREE.Vector3();
+
+  function getPanelIntersect(ctrl) {
+    ctrl.getWorldPosition(_panelRayOrigin);
+    const wq = new THREE.Quaternion();
+    ctrl.getWorldQuaternion(wq);
+    _panelRayDir.set(0, 0, -1).applyQuaternion(wq);
+    _panelRaycaster.set(_panelRayOrigin, _panelRayDir);
+    const hits = _panelRaycaster.intersectObject(panelMesh);
+    return hits.length > 0 ? hits[0] : null;
+  }
+
+  function updatePanel() {
+    // Billboard — always face camera
+    const camPos = new THREE.Vector3();
+    camera.getWorldPosition(camPos);
+    panelMesh.lookAt(camPos);
+    // Drag
+    if (panelDragging && panelDragCtrl) {
+      panelDragCtrl.getWorldPosition(_panelTmp);
+      panelMesh.position.copy(_panelTmp).add(panelDragOffset);
+    }
+  }
+
   renderer.setAnimationLoop(() => {
     updateControllerVelocities();
     handleLocomotion();
     handleSpawnButtons();
     checkBothGrips();
+    checkThumbClick();
     updateSpin();
     updateFading();
+    checkSnap();
+    updateSnapDots();
     updateArrows();
     updateProximity();
+    updatePanel();
     renderer.render(scene, camera);
   });
 
