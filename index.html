@@ -689,9 +689,11 @@
 
   function getChargeEnclosedFraction(ch) {
     if (ch.fading) return 0;
-    const pos = ch.mesh.position; // local to diorama
+    // Get position in diorama local space regardless of whether grabbed
+    ch.mesh.getWorldPosition(chargeWorldPos);
+    const pos = diorama.worldToLocal(chargeWorldPos.clone());
     const h = CUBE_SIZE / 2;
-    const tol = 0.01; // tolerance for "on the boundary"
+    const tol = 0.01;
 
     const onFaceX = Math.abs(Math.abs(pos.x) - h) < tol;
     const onFaceY = Math.abs(Math.abs(pos.y) - h) < tol;
@@ -700,15 +702,13 @@
     const insideY = Math.abs(pos.y) < h + tol;
     const insideZ = Math.abs(pos.z) < h + tol;
 
-    // Outside — no contribution
     if (!insideX || !insideY || !insideZ) return 0;
 
-    // Count how many faces the charge sits on
     const facesOn = (onFaceX ? 1 : 0) + (onFaceY ? 1 : 0) + (onFaceZ ? 1 : 0);
-    if (facesOn === 3) return 1/8; // corner
-    if (facesOn === 2) return 1/4; // edge
-    if (facesOn === 1) return 1/2; // face center
-    return 1; // fully inside
+    if (facesOn === 3) return 1/8;
+    if (facesOn === 2) return 1/4;
+    if (facesOn === 1) return 1/2;
+    return 1;
   }
 
   function calculateFlux() {
@@ -781,7 +781,7 @@
     rr(ctx, 14, 276, PCV_W-28, 80, 10, true, false);
     ctx.strokeStyle = '#44ff88'; ctx.lineWidth = 2;
     rr(ctx, 14, 276, PCV_W-28, 80, 10, false, true);
-    ctx.fillStyle = '#44ff88'; ctx.font = 'bold 18px sans-serif';
+    ctx.fillStyle = '#44ff88'; ctx.font = 'bold 28px sans-serif';
     ctx.fillText('Φ = ' + formatFlux(flux) + ' N·m²/C', PCV_W/2, 316);
 
     panelTex.needsUpdate = true;
