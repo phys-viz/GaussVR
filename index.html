@@ -683,9 +683,50 @@
     // No hit — keep current selection (sticky)
   }
 
-  // ── Floating control panel ────────────────────────────────────────────────
-  const PANEL_W = 0.30, PANEL_H = 0.16;
-  const PCV_W = 600, PCV_H = 310;
+  // ── Flux calculation ──────────────────────────────────────────────────────
+  const EPSILON_0 = 8.854e-12;
+  const Q_BASE = 1e-9; // 1 nC per unit charge
+
+  function getChargeEnclosedFraction(ch) {
+    if (ch.fading) return 0;
+    const pos = ch.mesh.position; // local to diorama
+    const h = CUBE_SIZE / 2;
+    const tol = 0.01; // tolerance for "on the boundary"
+
+    const onFaceX = Math.abs(Math.abs(pos.x) - h) < tol;
+    const onFaceY = Math.abs(Math.abs(pos.y) - h) < tol;
+    const onFaceZ = Math.abs(Math.abs(pos.z) - h) < tol;
+    const insideX = Math.abs(pos.x) < h + tol;
+    const insideY = Math.abs(pos.y) < h + tol;
+    const insideZ = Math.abs(pos.z) < h + tol;
+
+    // Outside — no contribution
+    if (!insideX || !insideY || !insideZ) return 0;
+
+    // Count how many faces the charge sits on
+    const facesOn = (onFaceX ? 1 : 0) + (onFaceY ? 1 : 0) + (onFaceZ ? 1 : 0);
+    if (facesOn === 3) return 1/8; // corner
+    if (facesOn === 2) return 1/4; // edge
+    if (facesOn === 1) return 1/2; // face center
+    return 1; // fully inside
+  }
+
+  function calculateFlux() {
+    let totalQ = 0;
+    charges.forEach(ch => {
+      const fraction = getChargeEnclosedFraction(ch);
+      totalQ += ch.type * ch.magnitude * fraction;
+    });
+    return (totalQ * Q_BASE) / EPSILON_0;
+  }
+
+  function formatFlux(flux) {
+    const abs = Math.abs(flux);
+    if (abs < 0.01) return '0';
+    return flux.toFixed(1);
+  }
+  const PANEL_W = 0.30, PANEL_H = 0.22;
+  const PCV_W = 600, PCV_H = 370;
   const panelCanvas = document.createElement('canvas');
   panelCanvas.width = PCV_W; panelCanvas.height = PCV_H;
   const panelCtx = panelCanvas.getContext('2d');
@@ -734,6 +775,15 @@
     ctx.fillStyle = '#aa77ff'; ctx.font = 'bold 22px sans-serif';
     ctx.fillText('⟳  RECENTER', PCV_W/2, 222);
 
+    // Flux display
+    const flux = calculateFlux();
+    ctx.fillStyle = '#0a1a0a';
+    rr(ctx, 14, 276, PCV_W-28, 80, 10, true, false);
+    ctx.strokeStyle = '#44ff88'; ctx.lineWidth = 2;
+    rr(ctx, 14, 276, PCV_W-28, 80, 10, false, true);
+    ctx.fillStyle = '#44ff88'; ctx.font = 'bold 18px sans-serif';
+    ctx.fillText('Φ = ' + formatFlux(flux) + ' N·m²/C', PCV_W/2, 316);
+
     panelTex.needsUpdate = true;
   }
   drawPanel();
@@ -768,10 +818,12 @@
     const camPos = new THREE.Vector3();
     camera.getWorldPosition(camPos);
     panelMesh.lookAt(camPos);
-    // Drag
+    // Drag — follow controller directly, no offset lag
     if (panelDragging && panelDragCtrl) {
       panelDragCtrl.getWorldPosition(_panelTmp);
-      panelMesh.position.copy(_panelTmp).add(panelDragOffset);
+      // Place panel slightly in front of controller
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(panelDragCtrl.quaternion);
+      panelMesh.position.copy(_panelTmp).addScaledVector(fwd, 0.3);
     }
   }
 
@@ -793,6 +845,7 @@
     charges.forEach(ch => {
       if (ch.labelMesh) ch.labelMesh.lookAt(camWorldPos);
     });
+    drawPanel();
     updatePanel();
     renderer.render(scene, camera);
   });
