@@ -227,8 +227,8 @@
       mesh.scale.setScalar(0.4 + strength * 1.6);
       const intensity = Math.min(1.0, strength * 3);
       mesh.children.forEach(child => {
-        child.material.emissiveIntensity = 0.1 + intensity * 0.8;
-        child.material.color.setRGB(intensity*0.3+0.1, intensity*0.6+0.3, 1.0);
+        child.material.emissiveIntensity = 0.3 + intensity * 1.2;
+        child.material.color.setRGB(intensity*0.2+0.1, intensity*0.7+0.4, 1.0);
       });
       mesh.setRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(_up, dir));
     });
@@ -887,9 +887,9 @@
     ctx.textAlign = 'left';
     lines.forEach((line, i) => {
       const y = 110 + i * 66;
-      ctx.fillStyle = '#ffcc44'; ctx.font = 'bold 26px sans-serif';
+      ctx.fillStyle = '#ffe066'; ctx.font = 'bold 28px sans-serif';
       ctx.fillText(line[0], 40, y);
-      ctx.fillStyle = '#aaccdd'; ctx.font = '24px sans-serif';
+      ctx.fillStyle = '#ffffff'; ctx.font = '25px sans-serif';
       ctx.fillText(line[1], 280, y);
     });
 
