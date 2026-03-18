@@ -853,6 +853,7 @@
     new THREE.MeshBasicMaterial({ map: helpTex, transparent: true, side: THREE.DoubleSide, depthTest: false })
   );
   helpMesh.visible = false;
+  helpMesh.renderOrder = 999;
   scene.add(helpMesh);
 
   function drawHelp() {
@@ -873,26 +874,32 @@
     ctx.beginPath(); ctx.moveTo(20, 76); ctx.lineTo(HCV_W-20, 76); ctx.stroke();
 
     const lines = [
-      ['A button',        'Spawn positive charge (+1q)'],
-      ['B button',        'Spawn negative charge (−1q)'],
-      ['Trigger',         'Grab and move a charge'],
-      ['Grip',            'Spin the cube'],
-      ['Swipe up',        'Double charge magnitude (2q)'],
-      ['Swipe down',      'Halve charge magnitude (1q)'],
-      ['Throw',           'Remove a charge'],
-      ['Both grips',      'Recenter cube'],
-      ['Right ray',       'Select charge (shows on panel)'],
-      ['Trigger',         'Dismiss this screen'],
+      ['A button',    'Spawn positive charge (+1q)'],
+      ['B button',    'Spawn negative charge (−1q)'],
+      ['Trigger',     'Grab and move a charge'],
+      ['Grip',        'Spin the cube'],
+      ['Swipe up',    'Double charge magnitude to 2q'],
+      ['Swipe down',  'Halve charge magnitude to 1q'],
+      ['Throw',       'Remove a charge'],
     ];
 
     ctx.textAlign = 'left';
     lines.forEach((line, i) => {
-      const y = 110 + i * 60;
+      const y = 110 + i * 66;
       ctx.fillStyle = '#ffcc44'; ctx.font = 'bold 26px sans-serif';
       ctx.fillText(line[0], 40, y);
       ctx.fillStyle = '#aaccdd'; ctx.font = '24px sans-serif';
       ctx.fillText(line[1], 280, y);
     });
+
+    // Divider before exit instruction
+    ctx.strokeStyle = '#223344'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(20, HCV_H-80); ctx.lineTo(HCV_W-20, HCV_H-80); ctx.stroke();
+
+    // Exit instruction
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Press trigger to exit', HCV_W/2, HCV_H-44);
 
     helpTex.needsUpdate = true;
   }
