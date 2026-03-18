@@ -266,6 +266,9 @@
     ctrl.add(ray);
 
     ctrl.addEventListener('selectstart', () => {
+      // Dismiss help screen first if visible
+      if (helpVisible) { hideHelp(); return; }
+
       // Check panel interaction first
       const hit = getPanelIntersect(ctrl);
       if (hit) {
@@ -280,6 +283,8 @@
           drawPanel();
         } else if (action === 'reset') {
           resetDioramaPosition();
+        } else if (action === 'help') {
+          showHelp();
         }
         return;
       }
@@ -583,9 +588,9 @@
     controllers.forEach(ctrl => haptic(ctrl, 0.4, 100));
   }
 
-  // Auto-reset when VR session starts
+  // Auto-show help when VR session starts
   renderer.xr.addEventListener('sessionstart', () => {
-    setTimeout(resetDioramaPosition, 500); // small delay to let tracking stabilize
+    setTimeout(() => { resetDioramaPosition(); showHelp(); }, 500);
   });
 
   // ── Snap system ───────────────────────────────────────────────────────────
@@ -725,8 +730,8 @@
     if (abs < 0.01) return '0';
     return flux.toFixed(1);
   }
-  const PANEL_W = 0.30, PANEL_H = 0.22;
-  const PCV_W = 600, PCV_H = 370;
+  const PANEL_W = 0.30, PANEL_H = 0.28;
+  const PCV_W = 600, PCV_H = 460;
   const panelCanvas = document.createElement('canvas');
   panelCanvas.width = PCV_W; panelCanvas.height = PCV_H;
   const panelCtx = panelCanvas.getContext('2d');
@@ -784,6 +789,14 @@
     ctx.fillStyle = '#44ff88'; ctx.font = 'bold 28px sans-serif';
     ctx.fillText('Φ = ' + formatFlux(flux) + ' N·m²/C', PCV_W/2, 316);
 
+    // Help button
+    ctx.fillStyle = '#1a1a2a';
+    rr(ctx, 14, 370, PCV_W-28, 70, 10, true, false);
+    ctx.strokeStyle = '#ffcc44'; ctx.lineWidth = 2;
+    rr(ctx, 14, 370, PCV_W-28, 70, 10, false, true);
+    ctx.fillStyle = '#ffcc44'; ctx.font = 'bold 22px sans-serif';
+    ctx.fillText('?  HELP', PCV_W/2, 405);
+
     panelTex.needsUpdate = true;
   }
   drawPanel();
@@ -793,6 +806,7 @@
     if (cy >= 6   && cy <= 76  && cx >= 6  && cx <= PCV_W-6)  return 'drag';
     if (cy >= 88  && cy <= 168 && cx >= 14 && cx <= PCV_W-14) return 'snap';
     if (cy >= 182 && cy <= 262 && cx >= 14 && cx <= PCV_W-14) return 'reset';
+    if (cy >= 370 && cy <= 440 && cx >= 14 && cx <= PCV_W-14) return 'help';
     return null;
   }
 
@@ -825,6 +839,82 @@
       const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(panelDragCtrl.quaternion);
       panelMesh.position.copy(_panelTmp).addScaledVector(fwd, 0.3);
     }
+  }
+
+  // ── Help screen ───────────────────────────────────────────────────────────
+  const HELP_W = 0.55, HELP_H = 0.45;
+  const HCV_W = 900, HCV_H = 740;
+  const helpCanvas = document.createElement('canvas');
+  helpCanvas.width = HCV_W; helpCanvas.height = HCV_H;
+  const helpCtx = helpCanvas.getContext('2d');
+  const helpTex = new THREE.CanvasTexture(helpCanvas);
+  const helpMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(HELP_W, HELP_H),
+    new THREE.MeshBasicMaterial({ map: helpTex, transparent: true, side: THREE.DoubleSide, depthTest: false })
+  );
+  helpMesh.visible = false;
+  scene.add(helpMesh);
+
+  function drawHelp() {
+    const ctx = helpCtx;
+    ctx.clearRect(0, 0, HCV_W, HCV_H);
+    ctx.fillStyle = 'rgba(6,10,24,0.97)';
+    ctx.beginPath(); ctx.roundRect(0, 0, HCV_W, HCV_H, 24); ctx.fill();
+    ctx.strokeStyle = '#4fc3f7'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.roundRect(2, 2, HCV_W-4, HCV_H-4, 22); ctx.stroke();
+
+    // Title
+    ctx.fillStyle = '#4fc3f7'; ctx.font = 'bold 38px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Gauss VR — Controls', HCV_W/2, 46);
+
+    // Divider
+    ctx.strokeStyle = '#223344'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(20, 76); ctx.lineTo(HCV_W-20, 76); ctx.stroke();
+
+    const lines = [
+      ['A button',        'Spawn positive charge (+1q)'],
+      ['B button',        'Spawn negative charge (−1q)'],
+      ['Trigger',         'Grab and move a charge'],
+      ['Grip',            'Spin the cube'],
+      ['Swipe up',        'Double charge magnitude (2q)'],
+      ['Swipe down',      'Halve charge magnitude (1q)'],
+      ['Throw',           'Remove a charge'],
+      ['Both grips',      'Recenter cube'],
+      ['Right ray',       'Select charge (shows on panel)'],
+      ['Trigger',         'Dismiss this screen'],
+    ];
+
+    ctx.textAlign = 'left';
+    lines.forEach((line, i) => {
+      const y = 110 + i * 60;
+      ctx.fillStyle = '#ffcc44'; ctx.font = 'bold 26px sans-serif';
+      ctx.fillText(line[0], 40, y);
+      ctx.fillStyle = '#aaccdd'; ctx.font = '24px sans-serif';
+      ctx.fillText(line[1], 280, y);
+    });
+
+    helpTex.needsUpdate = true;
+  }
+  drawHelp();
+
+  let helpVisible = false;
+
+  function showHelp() {
+    helpVisible = true;
+    helpMesh.visible = true;
+    // Position centered in front of camera
+    const camPos = new THREE.Vector3();
+    const camDir = new THREE.Vector3();
+    camera.getWorldPosition(camPos);
+    camera.getWorldDirection(camDir);
+    helpMesh.position.copy(camPos).addScaledVector(camDir, 1.2);
+    helpMesh.lookAt(camPos);
+  }
+
+  function hideHelp() {
+    helpVisible = false;
+    helpMesh.visible = false;
   }
 
   renderer.setAnimationLoop(() => {
