@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -19,7 +19,7 @@
   renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
 
-  // ── Audio ──────────────────────────────────────────────────────────────────
+  // Audio
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
   function playPop(freq, duration) {
@@ -50,14 +50,22 @@
     src.start();
   }
 
-  // ── Haptics ────────────────────────────────────────────────────────────────
+  // Haptics
   function haptic(controller, intensity, duration) {
     const session = renderer.xr.getSession();
     if (!session) return;
     for (const source of session.inputSources) {
       const ctrl = renderer.xr.getController(source.handedness === 'left' ? 0 : 1);
-      if (ctrl === controller && source.gamepad && source.gamepad.hapticActuators && source.gamepad.hapticActuators[0]) {
+      if (ctrl !== controller || !source.gamepad) continue;
+      if (source.gamepad.hapticActuators && source.gamepad.hapticActuators[0]) {
         source.gamepad.hapticActuators[0].pulse(intensity, duration);
+      } else if (source.gamepad.vibrationActuator && source.gamepad.vibrationActuator.playEffect) {
+        source.gamepad.vibrationActuator.playEffect('dual-rumble', {
+          startDelay: 0,
+          duration,
+          weakMagnitude: intensity,
+          strongMagnitude: intensity
+        }).catch(() => {});
       }
     }
   }
@@ -108,7 +116,7 @@
     canvas.width = 180; canvas.height = 80;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, 180, 80);
-    const text = (type > 0 ? '+' : '−') + magnitude + 'q';
+    const text = (type > 0 ? '+' : '-') + magnitude + 'q';
     const bgColor = type > 0 ? '#cc2222' : '#2255cc';
     // Background pill
     ctx.fillStyle = bgColor;
@@ -147,9 +155,7 @@
 
   function removeCharge(ch) {
     if (ch.labelMat.map) ch.labelMat.map.dispose();
-    scene.remove(ch.mesh);
     diorama.remove(ch.mesh);
-    scene.remove(ch.light);
     diorama.remove(ch.light);
     charges.splice(charges.indexOf(ch), 1);
     updateButtons();
@@ -234,10 +240,10 @@
     });
   }
 
-  // Labels removed — controls explained in README / onboarding
-  function updateButtons() { /* no-op — labels removed */ }
+  // Labels removed; controls explained in README / onboarding
+  function updateButtons() { /* no-op; labels removed */ }
 
-  // ── Controllers ────────────────────────────────────────────────────────────
+  // Controllers
   const GRAB_RADIUS = 0.5;
   const THROW_THRESHOLD = 0.018;
   const raycaster = new THREE.Raycaster();
@@ -248,6 +254,16 @@
   ];
   let spinController = null;
   const spinPrevPos = new THREE.Vector3(), spinCurrPos = new THREE.Vector3();
+  const _chargeLocalPos = new THREE.Vector3();
+  const _camWorldPos = new THREE.Vector3();
+  const _panelCamPos = new THREE.Vector3();
+  const _panelForward = new THREE.Vector3();
+  const _swipeAxis = new THREE.Vector3();
+  const _camRight = new THREE.Vector3();
+  const _camUp = new THREE.Vector3();
+  const _resetCamPos = new THREE.Vector3();
+  const _resetCamDir = new THREE.Vector3();
+  const _moveRight = new THREE.Vector3();
 
   for (let i=0; i<2; i++) {
     const ctrl = renderer.xr.getController(i);
@@ -399,13 +415,13 @@
     if (ch.labelMat.map) ch.labelMat.map.dispose();
     ch.labelMat.map = makeChargeLabel(ch.type, ch.magnitude);
     ch.labelMat.needsUpdate = true;
-    // Keep sphere same size — label communicates magnitude
+    // Keep sphere same size; label communicates magnitude
     ch.mesh.material.emissiveIntensity = ch.magnitude === 2 ? 1.0 : 0.5;
     ch.light.intensity = ch.magnitude === 2 ? 1.8 : 1.0;
     drawPanel();
   }
 
-  // ── Swipe magnitude gesture ───────────────────────────────────────────────
+  // Swipe magnitude gesture
   const SWIPE_THRESHOLD = 0.020;
   const SWIPE_PROX = 0.55;
   let swipeCooled = true;
@@ -417,21 +433,10 @@
   function checkSwipeGesture() {
     const session = renderer.xr.getSession();
     if (!session) return;
-    // Find right controller
     let rightCtrl = null;
-    for (const source of session.inputSources) {
-      if (source.handedness === 'right') {
-        const idx = source.handedness === 'left' ? 0 : 1;
-        // Use getController matched by handedness via inputSources order
-        for (let i = 0; i < controllers.length; i++) {
-          rightCtrl = controllers[i];
-        }
-        // Get position directly from the xr controller that matches right hand
-        for (let i = 0; i < session.inputSources.length; i++) {
-          if (session.inputSources[i] === source) {
-            rightCtrl = renderer.xr.getController(i);
-          }
-        }
+    for (let i = 0; i < session.inputSources.length; i++) {
+      if (session.inputSources[i].handedness === 'right') {
+        rightCtrl = renderer.xr.getController(i);
         break;
       }
     }
@@ -501,19 +506,19 @@
   function updateSpin() {
     if (!spinController) return;
     spinController.getWorldPosition(spinCurrPos);
-    const delta = spinCurrPos.clone().sub(spinPrevPos);
+    const delta = _swipeVel.subVectors(spinCurrPos, spinPrevPos);
 
-    // Trackball rotation — axis is perpendicular to the swipe in camera space
+    // Trackball rotation; axis is perpendicular to the swipe in camera space
     // This feels like rolling a physical ball with your hand
     const swipeMag = Math.sqrt(delta.x * delta.x + delta.y * delta.y);
     if (swipeMag > 0.0001) {
       // Get camera's right and up vectors in world space
-      const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-      const camUp    = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+      const camRight = _camRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
+      const camUp    = _camUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
       // Rotation axis = perpendicular to swipe direction in camera plane
-      const axis = new THREE.Vector3()
-        .addScaledVector(camUp,    delta.x)   // swipe right → rotate around up
-        .addScaledVector(camRight, -delta.y)  // swipe up → rotate around right
+      const axis = _swipeAxis.set(0, 0, 0)
+        .addScaledVector(camUp,    delta.x)   // swipe right -> rotate around up
+        .addScaledVector(camRight, -delta.y)  // swipe up -> rotate around right
         .normalize();
       const angle = swipeMag * 3.0;
       const q = new THREE.Quaternion().setFromAxisAngle(axis, angle);
@@ -522,7 +527,7 @@
     spinPrevPos.copy(spinCurrPos);
   }
 
-  // ── A/B button spawning ───────────────────────────────────────────────────
+  // A/B button spawning
   let aCooled = true, bCooled = true;
 
   function handleSpawnButtons() {
@@ -555,7 +560,7 @@
       if (source.handedness === 'left') {
         if (Math.abs(sx)>0.15 || Math.abs(sy)>0.15) {
           camera.getWorldDirection(camDir); camDir.y=0; camDir.normalize();
-          const right = new THREE.Vector3().crossVectors(camDir, new THREE.Vector3(0,1,0));
+          const right = _moveRight.crossVectors(camDir, _up);
           moveDir.set(0,0,0).addScaledVector(camDir,-sy*0.025).addScaledVector(right,sx*0.025);
           player.position.add(moveDir);
         }
@@ -567,33 +572,63 @@
     }
   }
 
-  // ── Position Reset ────────────────────────────────────────────────────────
+  // Position reset
   function resetDioramaPosition() {
-    const camPos = new THREE.Vector3();
-    const camDir = new THREE.Vector3();
-    camera.getWorldPosition(camPos);
-    camera.getWorldDirection(camDir);
-    camDir.y = 0;
-    camDir.normalize();
+    camera.getWorldPosition(_resetCamPos);
+    camera.getWorldDirection(_resetCamDir);
+    _resetCamDir.y = 0;
+    _resetCamDir.normalize();
     // Place cube 1 meter in front, slightly below eye level
-    diorama.position.copy(camPos)
-      .addScaledVector(camDir, 1.0)
+    diorama.position.copy(_resetCamPos)
+      .addScaledVector(_resetCamDir, 1.0)
       .add(new THREE.Vector3(0, -0.2, 0));
     diorama.quaternion.identity();
     // Move panel to right of cube
-    panelMesh.position.copy(camPos)
-      .addScaledVector(camDir, 1.0)
+    panelMesh.position.copy(_resetCamPos)
+      .addScaledVector(_resetCamDir, 1.0)
       .add(new THREE.Vector3(0.4, -0.1, 0));
     // Buzz both controllers
     controllers.forEach(ctrl => haptic(ctrl, 0.4, 100));
   }
 
-  // Auto-show help when VR session starts
+  let vrSessionActive = false;
+  let pendingHelpTimer = null;
+
+  function cancelPendingHelp() {
+    if (pendingHelpTimer !== null) {
+      clearTimeout(pendingHelpTimer);
+      pendingHelpTimer = null;
+    }
+  }
+
+  function resetVrUiState() {
+    panelDragging = false;
+    panelDragCtrl = null;
+    spinController = null;
+    swipeCooled = true;
+    _swipeInitialized = false;
+    bothGripsCooled = true;
+    hideHelp();
+  }
+
   renderer.xr.addEventListener('sessionstart', () => {
-    setTimeout(() => { resetDioramaPosition(); showHelp(); }, 500);
+    vrSessionActive = true;
+    cancelPendingHelp();
+    pendingHelpTimer = setTimeout(() => {
+      pendingHelpTimer = null;
+      if (!vrSessionActive) return;
+      resetDioramaPosition();
+      showHelp();
+    }, 500);
   });
 
-  // ── Snap system ───────────────────────────────────────────────────────────
+  renderer.xr.addEventListener('sessionend', () => {
+    vrSessionActive = false;
+    cancelPendingHelp();
+    resetVrUiState();
+  });
+
+  // Snap system
   let snapMode = false;
   const _h = CUBE_SIZE / 2;
   const _out = 0.85; // outside snap distance from center
@@ -655,7 +690,7 @@
     });
   }
 
-  // ── Passive ray selection ─────────────────────────────────────────────────
+  // Passive ray selection
   let selectedCharge = null;
   const _raySelOrigin = new THREE.Vector3();
   const _raySelDir = new THREE.Vector3();
@@ -677,18 +712,18 @@
     if (hits.length > 0) {
       const ch = charges.find(c => c.mesh === hits[0].object);
       if (ch && ch !== selectedCharge) {
-        // New charge hit — switch selection
+        // New charge hit; switch selection
         if (selectedCharge) selectedCharge.mesh.material.emissiveIntensity = 0.5;
         selectedCharge = ch;
         ch.mesh.material.emissiveIntensity = 1.2;
         drawPanel();
       }
-      // If same charge hit, do nothing — keeps selection stable
+      // If same charge hit, do nothing; keeps selection stable
     }
-    // No hit — keep current selection (sticky)
+    // No hit; keep current selection (sticky)
   }
 
-  // ── Flux calculation ──────────────────────────────────────────────────────
+  // Flux calculation
   const EPSILON_0 = 8.854e-12;
   const Q_BASE = 1e-9; // 1 nC per unit charge
 
@@ -696,7 +731,7 @@
     if (ch.fading) return 0;
     // Get position in diorama local space regardless of whether grabbed
     ch.mesh.getWorldPosition(chargeWorldPos);
-    const pos = diorama.worldToLocal(chargeWorldPos.clone());
+    const pos = diorama.worldToLocal(_chargeLocalPos.copy(chargeWorldPos));
     const h = CUBE_SIZE / 2;
     const tol = 0.01;
 
@@ -761,7 +796,7 @@
     rr(ctx, 6, 6, PCV_W-12, 70, [14,14,0,0], true, false);
     ctx.fillStyle = '#4fc3f7'; ctx.font = 'bold 26px sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('⚙ Controls  ⠿', PCV_W/2, 42);
+    ctx.fillText('Controls  Drag', PCV_W/2, 42);
 
     // Snap button
     ctx.fillStyle = snapMode ? '#005522' : '#1a2a3a';
@@ -770,7 +805,7 @@
     rr(ctx, 14, 88, PCV_W-28, 80, 10, false, true);
     ctx.fillStyle = snapMode ? '#00ee77' : '#7799aa';
     ctx.font = 'bold 24px sans-serif';
-    ctx.fillText('SNAP  ' + (snapMode ? '● ON' : '○ OFF'), PCV_W/2, 128);
+    ctx.fillText('SNAP  ' + (snapMode ? 'ON' : 'OFF'), PCV_W/2, 128);
 
     // Recenter button
     ctx.fillStyle = '#18102a';
@@ -778,7 +813,7 @@
     ctx.strokeStyle = '#9966ff'; ctx.lineWidth = 2;
     rr(ctx, 14, 182, PCV_W-28, 80, 10, false, true);
     ctx.fillStyle = '#aa77ff'; ctx.font = 'bold 22px sans-serif';
-    ctx.fillText('⟳  RECENTER', PCV_W/2, 222);
+    ctx.fillText('RECENTER', PCV_W/2, 222);
 
     // Flux display
     const flux = calculateFlux();
@@ -787,7 +822,7 @@
     ctx.strokeStyle = '#44ff88'; ctx.lineWidth = 2;
     rr(ctx, 14, 276, PCV_W-28, 80, 10, false, true);
     ctx.fillStyle = '#44ff88'; ctx.font = 'bold 28px sans-serif';
-    ctx.fillText('Φ = ' + formatFlux(flux) + ' N·m²/C', PCV_W/2, 316);
+    ctx.fillText('Flux = ' + formatFlux(flux) + ' N*m^2/C', PCV_W/2, 316);
 
     // Help button
     ctx.fillStyle = '#1a1a2a';
@@ -828,20 +863,19 @@
   }
 
   function updatePanel() {
-    // Billboard — always face camera
-    const camPos = new THREE.Vector3();
-    camera.getWorldPosition(camPos);
-    panelMesh.lookAt(camPos);
-    // Drag — follow controller directly, no offset lag
+    // Billboard; always face camera
+    camera.getWorldPosition(_panelCamPos);
+    panelMesh.lookAt(_panelCamPos);
+    // Drag; follow controller directly, no offset lag
     if (panelDragging && panelDragCtrl) {
       panelDragCtrl.getWorldPosition(_panelTmp);
       // Place panel slightly in front of controller
-      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(panelDragCtrl.quaternion);
+      const fwd = _panelForward.set(0, 0, -1).applyQuaternion(panelDragCtrl.quaternion);
       panelMesh.position.copy(_panelTmp).addScaledVector(fwd, 0.3);
     }
   }
 
-  // ── Help screen ───────────────────────────────────────────────────────────
+  // Help screen
   const HELP_W = 0.55, HELP_H = 0.45;
   const HCV_W = 900, HCV_H = 740;
   const helpCanvas = document.createElement('canvas');
@@ -867,7 +901,7 @@
     // Title
     ctx.fillStyle = '#4fc3f7'; ctx.font = 'bold 38px sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('Gauss VR — Controls', HCV_W/2, 46);
+    ctx.fillText('Gauss VR Controls', HCV_W/2, 46);
 
     // Divider
     ctx.strokeStyle = '#223344'; ctx.lineWidth = 2;
@@ -875,11 +909,11 @@
 
     const lines = [
       ['A button',    'Spawn positive charge (1q = 1 nC)'],
-      ['B button',    'Spawn negative charge (−1q = −1 nC)'],
+      ['B button',    'Spawn negative charge (-1q = -1 nC)'],
       ['Trigger',     'Grab and move a charge'],
       ['Grip',        'Spin the cube'],
-      ['Swipe up',    'Swipe up thru charge → 2q'],
-      ['Swipe down',  'Swipe down thru charge → 1q'],
+      ['Swipe up',    'Swipe up through charge -> 2q'],
+      ['Swipe down',  'Swipe down through charge -> 1q'],
       ['Throw',       'Remove a charge'],
     ];
 
@@ -911,12 +945,10 @@
     helpVisible = true;
     helpMesh.visible = true;
     // Position centered in front of camera
-    const camPos = new THREE.Vector3();
-    const camDir = new THREE.Vector3();
-    camera.getWorldPosition(camPos);
-    camera.getWorldDirection(camDir);
-    helpMesh.position.copy(camPos).addScaledVector(camDir, 1.2);
-    helpMesh.lookAt(camPos);
+    camera.getWorldPosition(_panelCamPos);
+    camera.getWorldDirection(_panelForward);
+    helpMesh.position.copy(_panelCamPos).addScaledVector(_panelForward, 1.2);
+    helpMesh.lookAt(_panelCamPos);
   }
 
   function hideHelp() {
@@ -937,10 +969,9 @@
     updateProximity();
     updateRaySelection();
     // Billboard charge labels toward camera
-    const camWorldPos = new THREE.Vector3();
-    camera.getWorldPosition(camWorldPos);
+    camera.getWorldPosition(_camWorldPos);
     charges.forEach(ch => {
-      if (ch.labelMesh) ch.labelMesh.lookAt(camWorldPos);
+      if (ch.labelMesh) ch.labelMesh.lookAt(_camWorldPos);
     });
     drawPanel();
     updatePanel();
@@ -956,17 +987,41 @@
   });
   btn.textContent = 'Enter VR';
   document.body.appendChild(btn);
+  let currentSession = null;
+
+  function setVrButtonState(label, disabled = false) {
+    btn.textContent = label;
+    btn.disabled = disabled;
+    btn.style.opacity = disabled ? '0.65' : '1';
+    btn.style.cursor = disabled ? 'default' : 'pointer';
+  }
   btn.addEventListener('click', async () => {
-    if (!navigator.xr) { btn.textContent = '⚠ WebXR not available'; return; }
+    if (currentSession) {
+      currentSession.end().catch(() => {});
+      return;
+    }
+    if (!navigator.xr) { setVrButtonState('WebXR not available', true); return; }
+    setVrButtonState('Starting VR...', true);
     const ok = await navigator.xr.isSessionSupported('immersive-vr').catch(() => false);
-    if (!ok) { btn.textContent = '⚠ VR not supported'; return; }
+    if (!ok) { setVrButtonState('VR not supported', true); return; }
     const session = await navigator.xr.requestSession('immersive-vr', {
       optionalFeatures: ['local-floor','bounded-floor']
+    }).catch((err) => {
+      console.error('Failed to start VR session:', err);
+      return null;
     });
+    if (!session) {
+      setVrButtonState('Enter VR');
+      return;
+    }
+    currentSession = session;
     renderer.xr.setSession(session);
     audioCtx.resume();
-    btn.textContent = 'Exit VR';
-    session.addEventListener('end', () => { btn.textContent = 'Enter VR'; });
+    setVrButtonState('Exit VR');
+    session.addEventListener('end', () => {
+      currentSession = null;
+      setVrButtonState('Enter VR');
+    });
   });
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
@@ -979,3 +1034,4 @@
 </script>
 </body>
 </html>
+
