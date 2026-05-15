@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -154,9 +154,15 @@
   }
 
   function removeCharge(ch) {
+    if (selectedCharge === ch) selectedCharge = null;
     if (ch.labelMat.map) ch.labelMat.map.dispose();
-    diorama.remove(ch.mesh);
-    diorama.remove(ch.light);
+    if (ch.labelMesh) {
+      if (ch.labelMesh.parent) ch.labelMesh.parent.remove(ch.labelMesh);
+      ch.labelMesh.geometry.dispose();
+      ch.labelMat.dispose();
+    }
+    if (ch.mesh.parent) ch.mesh.parent.remove(ch.mesh);
+    if (ch.light.parent) ch.light.parent.remove(ch.light);
     charges.splice(charges.indexOf(ch), 1);
     updateButtons();
   }
